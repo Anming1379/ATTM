@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>ATTM.Plugin.MidiAi</AssemblyName>
+    <RootNamespace>ATTM.Plugin.MidiAi</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ATTM.csproj" />
+    <!-- 进程内推理：llama.cpp 的 .NET 绑定，模型 GGUF 由用户自己放 -->
+    <PackageReference Include="LLamaSharp" Version="0.23.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.23.0" />
+  </ItemGroup>
+
+  <!-- 把插件本体 + 依赖 + win-x64 原生库一起投放到主程序的 plugins 目录 -->
+  <Target Name="CopyPluginToAppOutput" AfterTargets="Build">
+    <ItemGroup>
+      <PluginManaged Include="$(TargetDir)*.dll" Exclude="$(TargetDir)ATTM.dll" />
+      <PluginNative Include="$(TargetDir)runtimes\win-x64\**\*.*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(PluginManaged)"
+          DestinationFolder="..\..\bin\$(Configuration)\net10.0-windows\plugins"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="@(PluginNative)"
+          DestinationFiles="@(PluginNative->'..\..\bin\$(Configuration)\net10.0-windows\plugins\runtimes\win-x64\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

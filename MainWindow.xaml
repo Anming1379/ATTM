@@ -64,14 +64,20 @@
                             Content="&#xE89C;" ToolTip="新建 (Ctrl+N)" Click="NewButton_Click" />
                     <Button x:Name="OpenButton" Style="{StaticResource IconButton}"
                             Content="&#xE2C8;" ToolTip="打开谱库文件夹（音乐\ATTM，Ctrl+O）" Click="OpenButton_Click" />
+                    <Button x:Name="ImportButton" Style="{StaticResource IconButton}"
+                            Content="&#xE8E5;" ToolTip="导入 MIDI（自动转换成简谱，Ctrl+I）" Click="ImportButton_Click" />
                     <Button x:Name="SaveButton" Style="{StaticResource IconButton}"
                             Content="&#xE161;" ToolTip="另存为（选择保存位置）；Ctrl+S 可在保存过一次后直接保存"
                             Click="SaveButton_Click" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 插件添加的工具条控件 -->
+                    <StackPanel x:Name="PluginToolbarHost" Orientation="Horizontal" VerticalAlignment="Center" />
                     <Button x:Name="ThemeButton" Style="{StaticResource IconButton}"
                             Content="&#xE518;" ToolTip="切换深色 / 浅色主题" Click="ThemeButton_Click" />
+                    <Button x:Name="PluginManagerButton" Style="{StaticResource IconButton}"
+                            Content="&#xE87B;" ToolTip="插件管理器" Click="PluginManagerButton_Click" />
                     <Button x:Name="SettingsButton" Style="{StaticResource IconButton}"
                             Content="&#xE8B8;" ToolTip="设置" Click="SettingsButton_Click" />
                 </StackPanel>
@@ -105,6 +111,8 @@
                            Text="BPM 120 · C 大调 · 4/4 · 0 音符 · 0:00" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel x:Name="PluginStatusHost" Orientation="Horizontal" VerticalAlignment="Center" />
+                    <TextBlock x:Name="PluginMessageText" Style="{StaticResource StatusText}" Margin="10,0,0,0" />
                     <TextBlock x:Name="ErrorCountText" Style="{StaticResource StatusText}"
                                Foreground="{DynamicResource Brush.Success}" Text="错误 0" />
                     <TextBlock Style="{StaticResource StatusText}" Text=" · " />

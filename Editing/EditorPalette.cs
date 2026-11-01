@@ -45,7 +45,8 @@ public sealed class EditorPalette
         _ => Error
     };
 
-    public static EditorPalette FromResources(FrameworkElement anchor) => new()
+    /// <param name="anchor">资源查找的起点；为 null 时只查 Application 资源，再退回内置色值。</param>
+    public static EditorPalette FromResources(FrameworkElement? anchor) => new()
     {
         Background = Get(anchor, "Brush.Window", "#FF141417"),
         Foreground = Get(anchor, "Brush.Text", "#FFE8E8ED"),
@@ -71,7 +72,7 @@ public sealed class EditorPalette
         Rest = Get(anchor, "Brush.Syntax.Rest", "#FF565B6B")
     };
 
-    public static EditorPalette CreateFallback() => FromResources(null!);
+    public static EditorPalette CreateFallback() => FromResources(null);
 
     private static Brush Get(FrameworkElement? anchor, string key, string fallback)
     {

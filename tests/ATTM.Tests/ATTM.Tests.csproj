@@ -12,6 +12,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\ATTM.csproj" />
+    <!-- 导入转换逻辑现在是插件，测试直接引用插件工程来验证 -->
+    <ProjectReference Include="..\..\plugins\ATTM.Plugin.MidiImport\ATTM.Plugin.MidiImport.csproj" />
   </ItemGroup>
 
 </Project>

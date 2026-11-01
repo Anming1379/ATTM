@@ -57,5 +57,22 @@
                     Style="{StaticResource TextButton}" Click="Refresh_Click" />
         </Grid>
 
+        <TextBlock Text="插件" FontSize="15" FontWeight="SemiBold" Margin="0,26,0,0" />
+
+        <Border Margin="0,12,0,0" Padding="12,10"
+                Background="{DynamicResource Brush.SurfaceAlt}"
+                BorderBrush="{DynamicResource Brush.Border}"
+                BorderThickness="1">
+            <StackPanel>
+                <TextBlock x:Name="PluginText"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           TextWrapping="Wrap"
+                           Text="正在读取插件…" />
+
+                <!-- 插件自己往设置页里塞的控件 -->
+                <StackPanel x:Name="PluginSettingsHost" Margin="0,10,0,0" />
+            </StackPanel>
+        </Border>
+
     </StackPanel>
 </Window>

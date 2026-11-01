@@ -115,7 +115,7 @@ public sealed class AttmEditor : Grid
     public string Text
     {
         get => _view.Text;
-        set => _view.SetText(value);
+        set => _view.Text = value;
     }
 
     public int CaretOffset => _view.CaretOffset;
@@ -356,14 +356,13 @@ public sealed class AttmEditor : Grid
 
     private void SyncMinimap()
     {
-        _minimap.Update(
+        _minimap.Update(new MinimapState(
             _view.Buffer,
             _palette,
             _view.LineHeight,
-            _view.TopPadding,
             _scroll.VerticalOffset,
             _scroll.ViewportHeight,
             _view.CaretLine,
-            _gutter.ErrorLines);
+            _gutter.ErrorLines));
     }
 }

@@ -38,6 +38,9 @@ ATTM 是一个 Windows 桌面小工具（.NET 10 + WPF）：
 - **纯文本编辑器**：自己画的编辑器，带简谱语法高亮、行号、错误波浪线
 - **直接发声**：把音符通过 winmm 发送到系统 MIDI 输出端口（Microsoft GS Wavetable Synth、loopMIDI、Pianoteq 等）
 - **导出 MIDI**：保存时同时产出 `.attm` 文本和同名 `.mid` 文件，可以直接拖进 DAW 或打谱软件
+- **导入 MIDI**：把 `.mid` 拖进窗口、`Ctrl+I` 或直接双击，自动转换成可编辑的简谱文本
+- **AI 整理（可选插件）**：小模型**跑在插件进程里**（LLamaSharp + 你指定的 GGUF），不再依赖外部服务；没有本地模型时也能退回本机 Ollama / OpenAI 兼容接口
+- **插件系统**：导入 / 导出 / 工具栏命令 / 界面控件都可以由插件提供——`plugins\` 里放个 dll 即可；自带**插件管理器**（工具栏拼图图标）可查看、启用/禁用、**热重载**、打开插件目录；插件默认跑在**沙箱**里（装载前扫描危险 API），需要越界的插件必须向你申请并由你确认；内置的 MIDI 导入自己就是一个插件
 - **双击关联**：安装包注册 `.attm`，资源管理器里双击即打开
 - **乐句预览侧边栏**：工具栏按钮在缩略图右边再展开一块，用超大字号显示当前播放的小节
   （并行声部的每一行都在），换句时逐行从框外滑入，并实时框出正在发声的音
@@ -133,6 +136,7 @@ bpm = 120
 
 ```text
 Ctrl+O            在资源管理器里打开谱库（音乐\ATTM）
+Ctrl+I            导入 MIDI（自动转换成简谱文本）
 Ctrl+N            新建（默认载入《小星星》示例）
 Ctrl+S            保存（首次会问位置，之后直接覆盖）
 Ctrl+Shift+S      另存为
@@ -225,6 +229,13 @@ powershell -ExecutionPolicy Bypass -File tools\publish.ps1 -SelfContained
 - `MidiOutputDevice`：空表示自动（优先 Microsoft GS Wavetable）
 - `DefaultSaveFolder`：上次保存的目录；空表示 `音乐\ATTM`
 
+插件目录（重启生效）：
+
+```text
+<ATTM 安装目录>\plugins\   随程序分发
+%APPDATA%\ATTM\plugins\   用户自己放
+```
+
 播放只发送 MIDI 消息，不做软音源合成；系统里至少要有一个 MIDI 输出端口才有声音（没有也能播放，只是静音，界面高亮照常）。
 
 ---
@@ -263,7 +274,10 @@ LICENSING.md           代码许可（MIT）
 THIRD-PARTY-NOTICES.md 字体与 .NET 运行时的许可
 AI-GENERATED-NOTICE.md AI 协作说明
 PLAN.md                开发计划与里程碑记录
+docs/                  技术文档集（架构、语法规范、模块 API、编辑器、播放、MIDI 导入、主题、构建、测试）
 ```
+
+面向改代码的人，从 **[docs/README.md](docs/README.md)** 开始读。
 
 ---
 

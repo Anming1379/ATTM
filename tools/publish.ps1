@@ -102,8 +102,8 @@ $publishArgs = @(
 if ($SelfContained) {
     $publishArgs += @(
         "--self-contained", "true",
-        "-p:IncludeNativeLibrariesForSelfExtract=true",
-        "-p:EnableCompressionInSingleFile=true"
+        "-p:IncludeNativeLibrariesForSelfExtract=false",
+        "-p:EnableCompressionInSingleFile=false"
     )
 } else {
     $publishArgs += @("--self-contained", "false")
@@ -136,6 +136,46 @@ foreach ($file in @("install-dotnet.cmd", "install-dotnet.ps1")) {
 $samples = Join-Path $root "samples"
 if (Test-Path $samples) {
     Copy-Item $samples (Join-Path $appDir "samples") -Recurse -Force
+}
+
+# 插件：单独构建后放进 app\plugins（要在打包之前完成，否则 zip 里没有插件）
+$pluginProject = Join-Path $root "plugins\ATTM.Plugin.MidiImport\ATTM.Plugin.MidiImport.csproj"
+if (Test-Path $pluginProject) {
+    Write-Host ""
+    Write-Host "构建插件..." -ForegroundColor Cyan
+
+    & dotnet build $pluginProject -c $Configuration -v q --nologo
+    if ($LASTEXITCODE -ne 0) { throw "插件构建失败（退出码 $LASTEXITCODE）" }
+
+    $pluginSrc = Join-Path $root "plugins\ATTM.Plugin.MidiImport\bin\$Configuration\net10.0-windows\ATTM.Plugin.MidiImport.dll"
+    if (Test-Path $pluginSrc) {
+        $pluginDir = Join-Path $appDir "plugins"
+        New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
+        Copy-Item $pluginSrc $pluginDir -Force
+        Write-Host "  plugins\ATTM.Plugin.MidiImport.dll" -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  没找到插件输出，跳过" -ForegroundColor Yellow
+    }
+}
+
+# 构建 plugins\ 下所有插件工程，然后把主程序输出目录里的 plugins\* 整体同步过去
+$pluginProjects = Get-ChildItem (Join-Path $root "plugins") -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { Join-Path $_.FullName ($_.Name + ".csproj") } |
+    Where-Object { Test-Path $_ }
+
+foreach ($project in $pluginProjects) {
+    Write-Host ("  构建 " + (Split-Path $project -Leaf)) -ForegroundColor DarkGray
+    & dotnet build $project -c $Configuration -v q --nologo | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "插件构建失败：$project" }
+}
+
+$pluginOut = Join-Path $root "bin\$Configuration\net10.0-windows\plugins"
+if (Test-Path $pluginOut) {
+    $pluginDir = Join-Path $appDir "plugins"
+    New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
+    Copy-Item (Join-Path $pluginOut "*") $pluginDir -Recurse -Force
+    Write-Host "  plugins\ 已同步（含依赖与原生库）" -ForegroundColor DarkGray
 }
 
 # 压缩包

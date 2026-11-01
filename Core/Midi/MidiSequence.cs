@@ -41,9 +41,9 @@ public static class MidiSequence
     public static int ApplyJitter(int baseVelocity, int jitter, Random? random)
     {
         if (jitter <= 0 || random is null)
-            return Math.Clamp(baseVelocity, 1, 127);
+            return Math.Clamp(baseVelocity, AttmSpec.MinVelocity, AttmSpec.MaxVelocity);
 
         var offset = random.Next(-jitter, jitter + 1);
-        return Math.Clamp(baseVelocity + offset, 1, 127);
+        return Math.Clamp(baseVelocity + offset, AttmSpec.MinVelocity, AttmSpec.MaxVelocity);
     }
 }

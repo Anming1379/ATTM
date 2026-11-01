@@ -26,6 +26,10 @@
   <ItemGroup>
     <!-- 测试工程有自己的 .cs 文件，不参与主程序编译 -->
     <Compile Remove="tests\**" />
+    <Compile Remove="plugins\**" />
+    <None Remove="plugins\**" />
+    <Page Remove="plugins\**" />
+    <Resource Remove="plugins\**" />
     <None Remove="tests\**" />
     <Page Remove="tests\**" />
     <Resource Remove="tests\**" />

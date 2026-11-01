@@ -11,9 +11,6 @@ public static class AttmParser
 
 internal sealed class Parser
 {
-    private const int TicksPerQuarter = 480;
-    private const int MinUnitTicks = TicksPerQuarter / 32; // 十五分之一拍以上
-
     private readonly string _text;
     private readonly List<Token> _tokens;
     private readonly List<List<Token>> _lines = new();
@@ -25,10 +22,10 @@ internal sealed class Parser
     private double? _bpm;
     private char? _keyRoot;
     private bool _keySharp;
-    private int _beatsPerMeasure = 4;
-    private int _beatUnit = 4;
+    private int _beatsPerMeasure = AttmSpec.DefaultBeatsPerMeasure;
+    private int _beatUnit = AttmSpec.DefaultBeatUnit;
     private bool _timeSignatureKnown;
-    private int _velocityBase = 90;
+    private int _velocityBase = AttmSpec.DefaultVelocity;
     private int _velocityJitter;
     private int _groupStartLine;
     private bool _sawBpm;
@@ -46,7 +43,7 @@ internal sealed class Parser
         ComputeLineStarts();
     }
 
-    private int MeasureTicks => TicksPerQuarter * 4 * _beatsPerMeasure / _beatUnit;
+    private int MeasureTicks => AttmSpec.TicksPerQuarter * 4 * _beatsPerMeasure / _beatUnit;
 
     private void SplitLines()
     {
@@ -136,9 +133,9 @@ internal sealed class Parser
                 KeySharp = _keySharp,
                 BeatsPerMeasure = _beatsPerMeasure,
                 BeatUnit = _beatUnit,
-                VelocityBase = Math.Clamp(_velocityBase, 1, 127),
+                VelocityBase = Math.Clamp(_velocityBase, AttmSpec.MinVelocity, AttmSpec.MaxVelocity),
                 VelocityJitter = _velocityJitter,
-                TicksPerQuarter = TicksPerQuarter,
+                TicksPerQuarter = AttmSpec.TicksPerQuarter,
                 MeasureCount = _measureIndex,
                 Notes = NoteMerger.Apply(_notes)
             };
@@ -262,7 +259,7 @@ internal sealed class Parser
             return;
         }
 
-        if (bpm < 1 || bpm > 1000)
+        if (bpm < AttmSpec.MinBpm || bpm > AttmSpec.MaxBpm)
         {
             AddDiagnostic(DiagnosticCode.BpmOutOfRange, tokens[index], tokens[index].Span,
                 "bpm 必须在 1 到 1000 之间");
@@ -378,7 +375,7 @@ internal sealed class Parser
             return;
         }
 
-        if (baseVelocity is < 1 or > 127)
+        if (baseVelocity is < AttmSpec.MinVelocity or > AttmSpec.MaxVelocity)
         {
             AddDiagnostic(DiagnosticCode.VelocityOutOfRange, tokens[index], tokens[index].Span,
                 "力度基准必须在 1 到 127 之间");
@@ -400,7 +397,7 @@ internal sealed class Parser
                 return;
             }
 
-            if (jitter is < 0 or > 127)
+            if (jitter is < 0 or > AttmSpec.MaxVelocityJitter)
             {
                 AddDiagnostic(DiagnosticCode.VelocityOutOfRange, tokens[next + 2], tokens[next + 2].Span,
                     "随机力度范围必须在 0 到 127 之间");
@@ -575,7 +572,7 @@ internal sealed class Parser
                 var unitStart = segmentStart + (long)Math.Round((double)segmentTicks * u / units.Count);
                 var unitEnd = segmentStart + (long)Math.Round((double)segmentTicks * (u + 1) / units.Count);
 
-                if (unitEnd - unitStart < MinUnitTicks)
+                if (unitEnd - unitStart < AttmSpec.MinUnitTicks)
                 {
                     AddDiagnostic(DiagnosticCode.UnitTooShort, units[u].Span,
                         "音符时值过短（小于三十二分之一拍）");

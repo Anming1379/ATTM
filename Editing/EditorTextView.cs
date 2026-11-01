@@ -85,7 +85,12 @@ public sealed class EditorTextView : FrameworkElement
     public event EventHandler? LineMetricsChanged;
 
     public TextBuffer Buffer => _buffer;
-    public string Text => _buffer.Text;
+    /// <summary>全文。赋值等价于 <see cref="SetText"/>（会清空撤销栈并把光标复位）。</summary>
+    public string Text
+    {
+        get => _buffer.Text;
+        set => SetText(value);
+    }
     public int CaretOffset => _caret;
     public int SelectionStart => Math.Min(_caret, _anchor);
     public int SelectionLength => Math.Abs(_caret - _anchor);

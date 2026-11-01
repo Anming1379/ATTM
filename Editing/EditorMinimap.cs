@@ -6,6 +6,18 @@ using ATTM.Core.Syntax;
 namespace ATTM.Editing;
 
 /// <summary>
+/// 缩略图的一次状态快照。参数变多时只改这个类型，不必反复改 <see cref="EditorMinimap.Update"/> 的签名。
+/// </summary>
+public readonly record struct MinimapState(
+    TextBuffer? Buffer,
+    EditorPalette Palette,
+    double LineHeight,
+    double VerticalOffset,
+    double ViewportHeight,
+    int CaretLine,
+    HashSet<int>? ErrorLines);
+
+/// <summary>
 /// 右侧缩略图：把整篇谱面按统一比例压成横条，再叠一个当前视野的方框。
 /// 条、视野框、光标标记全部用同一套"文档行 -> 像素"的映射，保证上下对齐。
 /// 点一下或拖动可以快速跳转。
@@ -85,16 +97,16 @@ public sealed class EditorMinimap : FrameworkElement
     /// <summary>当前视野方框的高度（像素）。</summary>
     public double ViewportHeightPx => (_viewportHeight / Math.Max(1, _lineHeight)) * _linePixel;
 
-    public void Update(
-        TextBuffer? buffer,
-        EditorPalette palette,
-        double lineHeight,
-        double topPadding,
-        double verticalOffset,
-        double viewportHeight,
-        int caretLine,
-        HashSet<int>? errorLines)
+    public void Update(in MinimapState state)
     {
+        var buffer = state.Buffer;
+        var palette = state.Palette;
+        var lineHeight = state.LineHeight;
+        var verticalOffset = state.VerticalOffset;
+        var viewportHeight = state.ViewportHeight;
+        var caretLine = state.CaretLine;
+        var errorLines = state.ErrorLines;
+
         // TextBuffer 是原地修改的，引用不变不代表内容不变，必须看版本号
         var version = buffer?.Version ?? -1;
 

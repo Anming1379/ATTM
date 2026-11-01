@@ -24,6 +24,17 @@ internal static class Program
     private static int _passed;
     private static int _failed;
 
+    /// <summary>测试用临时目录：放在程序输出目录下，避免受系统 %TEMP% 权限影响。</summary>
+    private static string TempRoot
+    {
+        get
+        {
+            var dir = Path.Combine(AppContext.BaseDirectory, "tmp");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -41,7 +52,7 @@ internal static class Program
         Pump(700);
 
         // 不受用户本地配置影响，测试固定从深色主题开始
-        ThemeService.SetTheme(true);
+        ThemeService.SetMode(AppTheme.Dark);
         Pump(150);
 
         Check("窗口已渲染", () => window.ActualWidth > 400 && window.ActualHeight > 300,
@@ -354,7 +365,7 @@ bpm = 120
         {
             const char lf = (char)10;
 
-            var path = Path.Combine(Path.GetTempPath(), "attm-open-test.attm");
+            var path = Path.Combine(TempRoot, "attm-open-test.attm");
             File.WriteAllText(path, "bpm = 90" + lf + "1 = C 3/4" + lf + lf + "1,2,3");
 
             var other = new MainWindow(path);
@@ -380,7 +391,7 @@ bpm = 120
 
         Check("不存在的命令行参数回退到新建模板", () =>
         {
-            var other = new MainWindow(Path.Combine(Path.GetTempPath(), "definitely-missing.attm"));
+            var other = new MainWindow(Path.Combine(TempRoot, "definitely-missing.attm"));
             other.Show();
             Pump(500);
 
@@ -675,7 +686,7 @@ bpm = 120
 
         // ---------------------------------------------------------- 主题切换
 
-        ThemeService.SetTheme(false);
+        ThemeService.SetMode(AppTheme.Light);
         editor.ApplyTheme();
         Pump(400);
 
@@ -710,7 +721,7 @@ bpm = 120
             return pixels > 100 && watch.ElapsedMilliseconds < 3000;
         });
 
-        ThemeService.SetTheme(true);
+        ThemeService.SetMode(AppTheme.Dark);
         editor.ApplyTheme();
         Pump(300);
 

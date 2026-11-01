@@ -42,8 +42,8 @@ public static class PitchMapper
         if (degree is < 1 or > 7) return false;
         if (!TryGetRootOffset(keyRoot, out var root)) return false;
 
-        var value = 60 + root + (keySharp ? 1 : 0) + MajorScale[degree - 1] + octave * 12 + (sharp ? 1 : 0);
-        if (value is < 0 or > 127) return false;
+        var value = AttmSpec.MiddleC + root + (keySharp ? 1 : 0) + MajorScale[degree - 1] + octave * 12 + (sharp ? 1 : 0);
+        if (value is < AttmSpec.MinPitch or > AttmSpec.MaxPitch) return false;
 
         pitch = value;
         return true;

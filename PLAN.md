@@ -787,3 +787,71 @@ Brush.Gutter / Brush.GutterText / Brush.CurrentLine
   打开谱库只认它；`ResolveSaveFolder` 在没记过目录时也复用它。
 - 测试：`谱库目录固定是 音乐ATTM`（断言 LibraryFolder 等于 MyMusic\ATTM，
   且即使 DefaultSaveFolder 指向别处，保存目录才跟随、谱库不跟随）。
+
+### 2026-11-01 结构优化与 API 规范化
+
+- `MainWindow`（797 行）拆成 5 个 partial 文件：主文件只留文档模板、字段与构造函数，其余按「外观 / 播放 / 文件 / 命令」分组。
+- 新增 `Core/Syntax/AttmSpec.cs`（PPQ、最短时值、bpm/力度/音高范围、中央 C）与 `Services/UiTuning.cs`（解析防抖、播放节拍、乐句提前退场、窗口最小宽），消掉散落的魔数。
+- `Score` 增加 `GetMeasureStartTicks / GetMeasureStartTime / GetMeasureIndex(TimeSpan)`：`MainWindow` 里「小节 ↔ tick ↔ 时间」的三处各写一遍的换算收敛到一处（末尾小节用 `measureIndex == MeasureCount` 表示乐谱终点）。
+- API 规范化：`EditorMinimap.Update` 改为 `Update(in MinimapState)` 并删掉从未被使用的 `topPadding` 参数；`EditorPalette.FromResources` 接受可空 anchor（去掉 `null!`）；`EditorTextView.Text` 改为读写属性（setter 等价 `SetText`）；删除 `ThemeService.SetTheme(bool)` 兼容重载。
+- 测试健壮性：临时文件统一写到 `AppContext.BaseDirectory/tmp`，不再依赖系统 `%TEMP%`；「音乐目录」两条断言改为契约断言（仅在本进程能建目录时才校验目录存在）。`ATTM.Tests` 84 通过 / 8 失败 → **92 / 0**，`ATTM.UiChecks` 48 / 1 → **49 / 0**。
+- 新增 `.editorconfig`，把「C#/XAML 为 UTF-8 + LF」「`.ps1` 必须 UTF-8 with BOM」这两条既有约定写进工具链。
+- 审查发现与 backlog 见 `docs/10-结构审查与API规范.md`。
+
+### 2026-11-01 新增 MIDI 导入
+
+- `Core/Midi/SmfReader`：标准 MIDI 文件读取（format 0/1/2、running status、tempo / 拍号 / 调号 meta、按音高配对 NoteOn/NoteOff）；不支持的 SMPTE 时间基准与坏文件抛 `SmfFormatException`。
+- `Core/Import/MidiToAttm`：SMF → ATTM 文本的纯函数转换。tick 统一折算到 PPQ 480；调式优先取调号 meta，缺失时按音级直方图推断大调；同刻起音合成和弦；节奏按「分段数 × 段内单元数」由粗到细试排，要求每个音恰好占满一个单元，全部落空时退回十六分网格量化并标记 `RhythmExact = false`。
+- 入口：工具栏「导入 MIDI」按钮（`E8E5`）、`Ctrl+I`、拖放、剪贴板粘贴、命令行参数；导入结果不绑定原 `.mid` 路径，避免同名覆盖。
+- 文档：`docs/11-MIDI导入.md`（转换规则、会丢失什么、API、排错）。
+- 测试：`ATTM.Tests` 增加 7 项导入断言（含往返一致、和弦、3/4、长音、调式推断、真实 `.mid` 端到端、坏文件），总数 99 全绿。
+
+### 2026-11-01 插件系统：把 MIDI 导入拆成插件
+
+- 新增 `PluginApi/`（主程序内的契约层）：`IAttmPlugin` / `IImporterPlugin` / `IPluginHost` / `PluginImportResult` / `PluginEntry`，以及宿主 `PluginHost`（扫描 `plugins\` 目录、每个 dll 一个 `AssemblyLoadContext`、装载/实例化/初始化三层容错）。
+- 关键设计：`PluginLoadContext.Load` 对 `ATTM` 返回 `null` 回落到默认上下文，否则插件里的 `IAttmPlugin` 与宿主的不是同一类型，`is` 判断永远失败。
+- 把 `SmfReader`（原 `Core/Midi`）与 `MidiToAttm`（原 `Core/Import`）整体搬到新工程 `plugins/ATTM.Plugin.MidiImport/`，命名空间改为 `ATTM.Plugin.MidiImport`；主程序不再引用任何 MIDI 读取代码。
+- 界面：`MainWindow` 启动时装载宿主；`MainWindow.Files.cs` 按扩展名分流到插件（`FindImporter` / `OpenPath` / `ImportWith`）；`MainWindow.Commands.cs` 的导入对话框由插件提供过滤串；设置窗口新增「插件」只读区，列出装载成功与失败的条目。
+- 打包：`tools/publish.ps1` 先构建插件工程，再把 dll 复制到 `dist/app/plugins/`，zip 与安装包因此自带插件。
+- 测试：新增 5 项插件断言（注册、去重、初始化失败隔离、导入结果可解析、**从目录装载真实 dll**），`ATTM.Tests` 104 全绿。
+- 文档：新增 `docs/12-插件系统.md`；`docs/11` 标注该功能现为插件；`docs/03` 的 `Core.Import` 章节换成插件契约。
+
+### 2026-11-01 插件管理器 + 界面扩展点
+
+- 契约扩展：新增 `IPluginContext`（文档读写 / 状态栏 / 提示框 / 数据目录）、`IExporterPlugin`、`ICommandPlugin`、`IUiPlugin`、`PluginCommand`、`PluginUiItem`（`Toolbar` / `StatusBar` / `SettingsPanel` 三个槽位）、`PluginState`，`PluginEntry` 升级为带状态与上下文的类。
+- 宿主扩展：`PluginHost` 支持禁用表（按 dll 文件名，跳过装载）、能力聚合（`Importers` / `Exporters` / `Commands` / `UiItems`）、每插件独立的 `PluginContext`（数据目录与日志前缀隔离）。
+- 新增插件管理器窗口 `Views/PluginManagerWindow`：列出全部插件（含失败与被禁用）、勾选启用/禁用（写 `AppConfig.DisabledPlugins`，重启生效）、一键打开插件目录。
+- 主窗口新增三个槽位容器与装配逻辑 `MainWindow.Plugins.cs`；插件命令自动变成工具栏按钮（支持 `CanExecute` 变灰），插件控件直接挂进工具栏 / 状态栏 / 设置页；`SetStatus` 走状态栏 6 秒自动消失的消息。
+- 架构约束落地：主程序只认契约，不引用任何插件程序集；新增守卫测试「主程序不引用任何插件程序集」（反射引用列表）。
+- 测试：107 全绿（新增「命令与界面贡献被聚合」「被禁用的 dll 不装载」「主程序不引用任何插件程序集」）。
+- 文档：重写 `docs/12-插件系统.md`（14 节：能力矩阵、插槽、管理器、宿主要点、完整示例、架构约束、分发、限制、排错）。
+
+### 2026-11-01 插件沙箱 + 热重载
+
+- 沙箱：新增 `PluginSecurityScanner`（`System.Reflection.Metadata` 读元数据），装载前扫描禁止类型与 P/Invoke；命中即拒装并列出具体类型。禁止清单：`System.IO.File/Directory/FileStream/...`、`Process`、`HttpClient/WebClient`、`Socket/TcpClient/Dns`、`Registry`、`Marshal/NativeLibrary`、`Reflection.Emit`。`System.IO.Path` 不在禁止表内。
+- 契约：`IPluginContext.ReadFileBytes(path)` 让沙箱插件不碰 `System.IO.File`（宿主检查存在性与 64 MB 上限）；MIDI 插件改用该接口，`SmfReader` 删掉读文件的 `Read(string)` 重载。
+- 授权：新增 `ITrustRequestPlugin`（`TrustJustification`）、`PluginTrust` 与 `PluginState.PendingApproval`；未授权的申请插件**不初始化**，主窗口启动时弹窗确认，结论按 `id@version` 写进 `AppConfig.ApprovedPlugins` 并立即热重载。
+- 热重载：`AssemblyLoadContext` 改为可回收；`PluginHost.Reload()` 关停 → 卸载 → GC 循环 → 重新扫描装载，返回是否完全回收。**关键坑**：卸载与 GC 必须放在 `[MethodImpl(NoInlining)]` 的独立栈帧里，否则宿主帧的局部变量会把上下文钉住（第一版回收率恒为 false，改完立刻 true）。
+- 界面：插件管理器新增「信任」列（沙箱 / 无沙箱）、「待授权」状态、**重新加载插件**按钮；主窗口 `ReloadPlugins()` 重建槽位控件并按回收结果给出提示。
+- 测试：112 全绿（新增扫描器命中、内置插件合规、授权闸门、授权后放行、Reload 重装 5 项）。
+- 文档：`docs/12-插件系统.md` 增加 §15 沙箱（三层模型、禁止表、`ReadFileBytes`、授权流程、边界）与 §16 热重载（流程、独立栈帧的坑、回收结果汇报、何时仍需重启）。
+
+### 2026-11-01 第二个插件：MIDI AI 整理
+
+- 新工程 `plugins/ATTM.Plugin.MidiAi/`：自带精简 SMF 读取（`MiniSmf`，format 0/1 + running status），不依赖另一个插件。
+- 流程：读 MIDI → 生成「音符摘要」→ 拼提示词（内置 ATTM 语法要点）→ HTTP 调本机小模型（Ollama `/api/chat` 或 OpenAI `/v1/chat/completions`，按 URL 自动切换）→ 去代码块、补指令 → `AttmParser` 校验；不合法就把诊断码回喂给模型重试一次，仍失败则报错。
+- 信任：实现 `ITrustRequestPlugin`（需要访问 127.0.0.1），首次启动弹窗确认，结论按 `id@version` 记录 —— 未授权时状态为 `PendingApproval`，连 `Initialize` 都不调。
+- 设置：实现 `IUiPlugin`，设置窗口里有接口地址 / 模型名 / 超时；配置写插件数据目录，写不了退回程序目录。
+- 宿主改进：导入对话框按「过滤器序号」选择插件，所以基础导入与 AI 整理可以同时认领 `.mid`，由用户在选择框里挑。
+- 实测：假模型服务（Node，返回固定谱面）→ 插件导入 `samples/小星星 - 演示谱.mid` → 输出 60 字符、可播放、2 小节；未授权时正确落在 `PendingApproval`。
+- 文档：`docs/12-插件系统.md` 新增 §9.2（流程图、信任、设置、自愈、启动模型的命令）。
+
+### 2026-11-01 把模型搬进插件（进程内推理）
+
+- `ATTM.Plugin.MidiAi` 引入 `LLamaSharp 0.23.0` + `LLamaSharp.Backend.Cpu`：GGUF 直接在插件进程内加载，Ollama 服务变成备用通道。
+- `LocalModel`：`NativeLibraryConfig.WithSearchDirectories` 覆盖插件目录与 `runtimes/win-x64/native/*`；模型只加载一次并复用（`ModelParams` ContextSize 4096、`GpuLayerCount=0`）。
+- 打包：构建目标把插件本体 + 托管依赖 + `runtimes/win-x64/**` 复制进 `bin/<cfg>/net10.0-windows/plugins/`（约 11 MB），原生库不会污染其它目录。
+- 输出治理加强：提示词加 few-shot 示例、限制前 8 小节；返回内容丢弃解释性文字、补全缺失指令；「只有指令没有谱面」也会判定失败并重试一次。
+- 设置项改为：模型文件（.gguf）+ 服务地址 + 服务模型名 + 超时 + 最大 token，并有「浏览…」选模型。
+- 实测（本机 CPU，gemma-3-4b Q4_K_M 2.5 GB）：加载约 25 s、生成约 4 tok/s；8 小节 256 token 约 30 s，产出可被 `AttmParser` 接受的谱面。
+- 文档：`docs/12-插件系统.md` §9.2 重写（进程内管线、实测数据、选型建议、用 Ollama blob 当 GGUF 的技巧）。

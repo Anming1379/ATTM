@@ -1,6 +1,8 @@
 using System.IO;
 using System.Text;
 using ATTM.Core.Midi;
+using ATTM.Plugin.MidiImport;
+using ATTM.Plugins;
 using ATTM.Core.Syntax;
 using ATTM.Editing;
 using ATTM.Services;
@@ -15,6 +17,43 @@ internal static class Program
 {
     private static int _passed;
     private static int _failed;
+
+    /// <summary>系统的「音乐」目录；拿不到时退回家目录（与 AppConfig.LibraryFolder 的规则保持一致）。</summary>
+    private static string MusicFolder
+    {
+        get
+        {
+            var music = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+            return string.IsNullOrEmpty(music)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                : music;
+        }
+    }
+
+    /// <summary>尝试建目录；没有权限时返回 false（仅用于跳过依赖文件系统的断言）。</summary>
+    private static bool TryCreateDirectory(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>测试用临时目录：放在程序输出目录下，避免受系统 %TEMP% 权限影响。</summary>
+    private static string TempRoot
+    {
+        get
+        {
+            var dir = Path.Combine(AppContext.BaseDirectory, "tmp");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
 
     private static int Main(string[] args)
     {
@@ -336,7 +375,7 @@ internal static class Program
             var r = Parse(Header, "3,02,2,0");
             if (r.Score is null) return false;
 
-            var path = Path.Combine(Path.GetTempPath(), "attm-test-1.mid");
+            var path = Path.Combine(TempRoot, "attm-test-1.mid");
             MidiFileWriter.Write(r.Score, path, random: null);
             var midi = MidiReader.Read(path);
             File.Delete(path);
@@ -356,7 +395,7 @@ internal static class Program
             var r = Parse(Header, "1");
             if (r.Score is null) return false;
 
-            var path = Path.Combine(Path.GetTempPath(), "attm-test-2.mid");
+            var path = Path.Combine(TempRoot, "attm-test-2.mid");
             MidiFileWriter.Write(r.Score, path);
             var midi = MidiReader.Read(path);
             File.Delete(path);
@@ -374,7 +413,7 @@ internal static class Program
             var r = AttmParser.Parse("bpm = 90\n1 = G 3/4\n\n1,2,3");
             if (r.Score is null) return false;
 
-            var path = Path.Combine(Path.GetTempPath(), "attm-test-3.mid");
+            var path = Path.Combine(TempRoot, "attm-test-3.mid");
             MidiFileWriter.Write(r.Score, path);
             var midi = MidiReader.Read(path);
             File.Delete(path);
@@ -467,7 +506,7 @@ internal static class Program
             const char cr = (char)13;
             const char lf = (char)10;
 
-            var path = Path.Combine(Path.GetTempPath(), "attm-io-roundtrip.attm");
+            var path = Path.Combine(TempRoot, "attm-io-roundtrip.attm");
             TextFile.Write(path, "bpm = 120" + cr + lf + "1 = C 4/4" + lf + "1,2,3");
 
             var text = TextFile.Read(path);
@@ -482,7 +521,7 @@ internal static class Program
         {
             const char lf = (char)10;
 
-            var bom = Path.Combine(Path.GetTempPath(), "attm-io-bom.attm");
+            var bom = Path.Combine(TempRoot, "attm-io-bom.attm");
             File.WriteAllBytes(bom, new byte[] { 0xEF, 0xBB, 0xBF }
                 .Concat(Encoding.UTF8.GetBytes("1,2,3,4")).ToArray());
             var bomOk = TextFile.Read(bom) == "1,2,3,4";
@@ -491,7 +530,7 @@ internal static class Program
             var gbkOk = true;
             try
             {
-                var gbkPath = Path.Combine(Path.GetTempPath(), "attm-io-gbk.attm");
+                var gbkPath = Path.Combine(TempRoot, "attm-io-gbk.attm");
                 File.WriteAllBytes(gbkPath, Encoding.GetEncoding(936).GetBytes("# 欢乐颂" + lf + "1,2,3"));
                 gbkOk = TextFile.Read(gbkPath).Contains("欢乐颂");
                 File.Delete(gbkPath);
@@ -507,10 +546,13 @@ internal static class Program
         Check("配置：默认保存目录是 音乐/ATTM", () =>
         {
             var folder = AppConfig.ResolveSaveFolder(new AppConfig());
-            var music = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
-            var expected = Path.Combine(music, "ATTM");
+            var expected = Path.Combine(MusicFolder, "ATTM");
             Console.WriteLine("      " + folder);
-            return folder == expected && Directory.Exists(folder);
+
+            // 目录能不能建出来取决于运行环境权限，不参与断言；这里只校验契约（路径）。
+            var creatable = TryCreateDirectory(expected);
+            return string.Equals(folder, expected, StringComparison.OrdinalIgnoreCase)
+                   && (!creatable || Directory.Exists(folder));
         });
 
         Check("性能：两千行谱面解析在 1 秒内", () =>
@@ -533,7 +575,7 @@ internal static class Program
         {
             const char lf = (char)10;
 
-            var dir = Path.Combine(Path.GetTempPath(), "attm-save-" + Guid.NewGuid().ToString("N"));
+            var dir = Path.Combine(TempRoot, "attm-save-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
 
             var attmPath = Path.Combine(dir, "测试.attm");
@@ -627,24 +669,24 @@ internal static class Program
 
         Check("谱库目录固定是 音乐ATTM", () =>
         {
-            var music = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
-            if (string.IsNullOrEmpty(music)) music = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var expected = Path.Combine(music, "ATTM");
+            var expected = Path.Combine(MusicFolder, "ATTM");
 
             var library = AppConfig.LibraryFolder;
 
             // 即使上次保存到了别处，谱库也不跟着跑
-            var config = new AppConfig { DefaultSaveFolder = Path.GetTempPath() };
+            var config = new AppConfig { DefaultSaveFolder = TempRoot };
             var saveFolder = AppConfig.ResolveSaveFolder(config);
 
             Console.WriteLine($"      谱库 {library}");
             Console.WriteLine($"      上次保存目录存在时：保存用 {saveFolder}");
 
+            var creatable = TryCreateDirectory(expected);
+
             return string.Equals(library, expected, StringComparison.OrdinalIgnoreCase)
-                   && Directory.Exists(library)
+                   && (!creatable || Directory.Exists(library))
                    && string.Equals(
                        saveFolder.TrimEnd(Path.DirectorySeparatorChar),
-                       Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar),
+                       TempRoot.TrimEnd(Path.DirectorySeparatorChar),
                        StringComparison.OrdinalIgnoreCase);
         });
 
@@ -894,6 +936,288 @@ internal static class Program
         PlaybackChecks.Run();
 
         Console.WriteLine();
+        // ---------------------------------------------------------- MIDI 导入
+
+        Check("MIDI 导入：4/4 四分音符往返后音高与时值一致", () =>
+{
+            const char lf = (char)10;
+            var source = "bpm = 120" + lf + "1 = C 4/4" + lf + lf + "1,2,3,4" + lf;
+            var imported = ImportAttmViaMidi(source);
+
+            var before = AttmParser.Parse(source).Score;
+            var after = AttmParser.Parse(imported);
+
+            if (before is null || !after.CanPlay)
+            {
+                Console.WriteLine(imported);
+                return false;
+            }
+
+            Console.WriteLine("      导入结果：" + imported.Split(lf)[^2]);
+
+            var a = before.Notes.Select(n => (n.Pitch, n.StartTicks, n.DurationTicks)).ToArray();
+            var b = after.Score!.Notes.Select(n => (n.Pitch, n.StartTicks, n.DurationTicks)).ToArray();
+            return a.SequenceEqual(b);
+});
+
+        Check("MIDI 导入：和弦转成括号", () =>
+{
+            const char lf = (char)10;
+            var source = "bpm = 120" + lf + "1 = C 4/4" + lf + lf + "(135),(246)" + lf;
+            var imported = ImportAttmViaMidi(source);
+
+            Console.WriteLine("      " + imported.Split(lf).FirstOrDefault(l => l.Contains('(')));
+
+            var result = AttmParser.Parse(imported);
+            return result.CanPlay && imported.Contains('(') && result.Score!.Notes.Count == 6;
+});
+
+        Check("MIDI 导入：3/4 保持三拍", () =>
+{
+            const char lf = (char)10;
+            var source = "bpm = 100" + lf + "1 = C 3/4" + lf + lf + "1,2,3" + lf;
+            var imported = ImportAttmViaMidi(source);
+
+            var result = AttmParser.Parse(imported);
+            return result.CanPlay
+                   && result.Score!.BeatsPerMeasure == 3
+                   && result.Score.MeasureCount == 1
+                   && result.Score.Notes.Count == 3;
+});
+
+        Check("MIDI 导入：长音不被拆碎（半音符 + 休止）", () =>
+{
+            const char lf = (char)10;
+            var source = "bpm = 120" + lf + "1 = C 4/4" + lf + lf + "1,0" + lf;
+            var imported = ImportAttmViaMidi(source);
+
+            var result = AttmParser.Parse(imported);
+            return result.CanPlay
+                   && result.Score!.Notes.Count == 1
+                   && result.Score.Notes[0].DurationTicks == 960;
+});
+
+        Check("MIDI 导入：调式推断为 C 大调", () =>
+{
+            const char lf = (char)10;
+            var source = "bpm = 120" + lf + "1 = C 4/4" + lf + lf + "1,2,3,4" + lf + lf + "5,6,7,+1" + lf;
+            var imported = ImportAttmViaMidi(source);
+
+            var result = AttmParser.Parse(imported);
+            return result.CanPlay && result.Score!.KeyRoot == 'C' && !result.Score.KeySharp;
+});
+
+        Check("MIDI 导入：仓库示例 .mid 能转换回可播放谱面", () =>
+{
+            var root = FindRepoRoot();
+            if (root is null) return false;
+
+            var midi = Path.Combine(root, "samples", "小星星 - 演示谱.mid");
+            if (!File.Exists(midi)) return false;
+
+            var result = MidiToAttm.Convert(SmfReader.Read(File.ReadAllBytes(midi)), "小星星.mid");
+            var parsed = AttmParser.Parse(result.Text);
+
+            Console.WriteLine($"      {result.MeasureCount} 小节 / {result.NoteCount} 音 / {result.KeyName} / 精确={result.RhythmExact}");
+
+            return parsed.CanPlay && result.NoteCount > 20;
+});
+
+        Check("MIDI 导入：坏文件给出明确异常", () =>
+{
+            try
+            {
+                SmfReader.Read(new byte[] { 1, 2, 3, 4 });
+                return false;
+            }
+            catch (SmfFormatException)
+            {
+                return true;
+            }
+});
+        // ---------------------------------------------------------- 插件系统
+
+        Check("插件：注册后进入导入列表", () =>
+{
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>());
+            var entry = host.Register(new FakeImporter("test.one"));
+
+            return entry.IsLoaded
+                   && host.Entries.Count == 1
+                   && host.Importers.Count == 1
+                   && host.Importers[0].Plugin!.Id == "test.one";
+});
+
+        Check("插件：重复 Id 只记一次", () =>
+{
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>());
+            host.Register(new FakeImporter("test.dup"));
+            host.Register(new FakeImporter("test.dup"));
+
+            return host.Entries.Count == 1;
+});
+
+        Check("插件：初始化失败不会拖垮宿主", () =>
+{
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>());
+            var bad = host.Register(new FakeImporter("test.bad", throwOnInitialize: true));
+            var good = host.Register(new FakeImporter("test.good"));
+
+            return !bad.IsLoaded
+                   && bad.Error is not null
+                   && good.IsLoaded
+                   && host.Importers.Count == 1;
+});
+
+        Check("插件：导入结果可以直接被解析", () =>
+{
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>());
+            host.Register(new FakeImporter("test.import"));
+
+            var importer = (IImporterPlugin)host.Importers[0].Plugin!;
+            var result = importer.Import("x.fake");
+
+            return AttmParser.Parse(result.Text).CanPlay;
+});
+
+        Check("插件：从目录装载真实插件 dll", () =>
+{
+            var dll = Path.Combine(AppContext.BaseDirectory, "ATTM.Plugin.MidiImport.dll");
+            if (!File.Exists(dll))
+            {
+                Console.WriteLine("      输出目录里没有插件 dll，跳过");
+                return true;
+            }
+
+            var dir = Path.Combine(TempRoot, "plugins-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            File.Copy(dll, Path.Combine(dir, Path.GetFileName(dll)), true);
+
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), new[] { dir });
+            host.LoadAll();
+
+            Console.WriteLine($"      装载 {host.Entries.Count} 个，导入插件 {host.Importers.Count} 个");
+
+            return host.Importers.Count == 1
+                   && host.Importers[0].Plugin!.Id == "attm.midi-import"
+                   && host.Importers[0].Plugin is IImporterPlugin;
+});
+        Check("插件：命令与界面贡献被聚合", () =>
+{
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>());
+            host.Register(new FakeUiPlugin());
+
+            var commands = host.Commands;
+            var items = host.UiItems;
+
+            Console.WriteLine($"      命令 {commands.Count}，控件 {items.Count}");
+
+            return commands.Count == 1
+                   && commands[0].Command.Id == "hello"
+                   && items.Count == 2
+                   && items[0].Item.Slot == PluginUiSlot.StatusBar;   // Order 更小
+});
+
+        Check("插件：被禁用的 dll 不装载", () =>
+{
+            var dll = Path.Combine(AppContext.BaseDirectory, "ATTM.Plugin.MidiImport.dll");
+            if (!File.Exists(dll)) return true;
+
+            var dir = Path.Combine(TempRoot, "plugins-off-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            var fileName = Path.GetFileName(dll);
+            File.Copy(dll, Path.Combine(dir, fileName), true);
+
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), new[] { dir },
+                bridge: null, disabledFiles: new[] { fileName });
+            host.LoadAll();
+
+            return host.Entries.Count == 1
+                   && host.Entries[0].State == PluginState.Disabled
+                   && host.Entries[0].Plugin is null
+                   && host.Importers.Count == 0;
+});
+
+        Check("架构：主程序不引用任何插件程序集", () =>
+{
+            var referenced = typeof(MainWindow).Assembly.GetReferencedAssemblies()
+                .Select(a => a.Name ?? string.Empty)
+                .Where(name => name.StartsWith("ATTM.Plugin", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            Console.WriteLine("      引用插件程序集：" + (referenced.Count == 0 ? "无" : string.Join(",", referenced)));
+
+            return referenced.Count == 0;
+});
+        // ---------------------------------------------------------- 沙箱与热重载
+
+        Check("沙箱：扫描器能发现被禁止的 API", () =>
+{
+            // 测试程序自己就用了 System.IO.File / Directory，拿它当「不合规样本」
+            var hits = PluginSecurityScanner.Scan(typeof(Program).Assembly.Location);
+
+            Console.WriteLine("      命中：" + string.Join("、", hits.Take(4)));
+
+            return hits.Any(h => h.Contains("System.IO.File", StringComparison.Ordinal)
+                              || h.Contains("System.IO.Directory", StringComparison.Ordinal));
+});
+
+        Check("沙箱：内置 MIDI 插件本身合规", () =>
+{
+            var dll = Path.Combine(AppContext.BaseDirectory, "ATTM.Plugin.MidiImport.dll");
+            if (!File.Exists(dll)) return true;
+
+            var hits = PluginSecurityScanner.Scan(dll);
+
+            Console.WriteLine("      命中：" + (hits.Count == 0 ? "无" : string.Join("、", hits)));
+
+            return hits.Count == 0;
+});
+
+        Check("沙箱：申请无沙箱的插件在授权前不初始化", () =>
+{
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>());
+            var entry = host.Register(new FakeTrustPlugin());
+
+            return entry.State == PluginState.PendingApproval
+                   && entry.Plugin is not null
+                   && host.PendingApprovals.Count == 1
+                   && host.Importers.Count == 0;
+});
+
+        Check("沙箱：授权后按无沙箱装载", () =>
+{
+            using var host = new PluginHost(
+                TempRoot, Path.Combine(TempRoot, "data"), Array.Empty<string>(),
+                bridge: null, disabledFiles: null, approvedPlugins: new[] { "test.trust@1.0.0" });
+
+            var entry = host.Register(new FakeTrustPlugin());
+
+            return entry.IsLoaded && entry.Trust == PluginTrust.Unrestricted;
+});
+
+        Check("热重载：Reload 后插件重新装载", () =>
+{
+            var dll = Path.Combine(AppContext.BaseDirectory, "ATTM.Plugin.MidiImport.dll");
+            if (!File.Exists(dll)) return true;
+
+            var dir = Path.Combine(TempRoot, "plugins-reload-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            File.Copy(dll, Path.Combine(dir, Path.GetFileName(dll)), true);
+
+            using var host = new PluginHost(TempRoot, Path.Combine(TempRoot, "data"), new[] { dir });
+
+            host.LoadAll();
+
+            // 注意：重载前不要碰 host.Importers —— 它返回的列表会临时持有旧插件实例，
+            // 在 Debug 构建里这些临时引用留在栈上，GC 就收不掉旧的加载上下文了。
+            var clean = host.Reload();
+            var after = host.Importers.Count;
+
+            Console.WriteLine($"      重载后 {after} 个，上下文完全回收 {clean}");
+
+            return after == 1 && host.Importers[0].Plugin!.Id == "attm.midi-import";
+});
         Console.WriteLine($"通过 {_passed}，失败 {_failed}");
         return _failed == 0 ? 0 : 1;
     }
@@ -952,6 +1276,90 @@ internal static class Program
         }
 
         return true;
+    }
+
+    /// <summary>测试用的「申请无沙箱」插件。</summary>
+    private sealed class FakeTrustPlugin : ITrustRequestPlugin
+    {
+        public string Id => "test.trust";
+        public string Name => "要权限的插件";
+        public string Version => "1.0.0";
+        public string Description => "只用于测试";
+        public string TrustJustification => "需要读写用户指定的谱面目录";
+
+        public void Initialize(IPluginContext context) { }
+        public void Shutdown() { }
+    }
+
+    /// <summary>测试用的「命令 + 界面」插件。</summary>
+    private sealed class FakeUiPlugin : ICommandPlugin, IUiPlugin
+    {
+        public string Id => "test.ui";
+        public string Name => "假界面插件";
+        public string Version => "0.0.1";
+        public string Description => "只用于测试";
+
+        public IReadOnlyList<PluginCommand> Commands { get; } = new[]
+        {
+            new PluginCommand("hello", "打招呼", null, null, static context => context.Log("hi"))
+        };
+
+        public IReadOnlyList<PluginUiItem> UiItems { get; } = new[]
+        {
+            new PluginUiItem(PluginUiSlot.Toolbar, 20, static _ => new System.Windows.Controls.TextBlock { Text = "T" }),
+            new PluginUiItem(PluginUiSlot.StatusBar, 10, static _ => new System.Windows.Controls.TextBlock { Text = "S" })
+        };
+
+        public void Initialize(IPluginContext context) { }
+        public void Shutdown() { }
+    }
+
+    /// <summary>测试用的导入插件。</summary>
+    private sealed class FakeImporter : IImporterPlugin
+    {
+        private readonly bool _throwOnInitialize;
+
+        public FakeImporter(string id, bool throwOnInitialize = false)
+        {
+            Id = id;
+            _throwOnInitialize = throwOnInitialize;
+        }
+
+        public string Id { get; }
+        public string Name => "假插件";
+        public string Version => "0.0.1";
+        public string Description => "只用于测试";
+        public IReadOnlyList<string> Extensions { get; } = new[] { ".fake" };
+        public string FileFilter => "假文件 (*.fake)|*.fake";
+
+        public void Initialize(IPluginContext context)
+        {
+            if (_throwOnInitialize) throw new InvalidOperationException("故意失败");
+        }
+
+        public void Shutdown() { }
+
+        public PluginImportResult Import(string path)
+            => new("# 假插件" + (char)10 + "bpm = 120" + (char)10 + "1 = C 4/4" + (char)10 + (char)10 + "1,2,3,4" + (char)10);
+    }
+
+    /// <summary>把一段 ATTM 文本写成 .mid，再经导入器转回文本（往返验证）。</summary>
+    private static string ImportAttmViaMidi(string attmText)
+    {
+        var parsed = AttmParser.Parse(attmText);
+        if (parsed.Score is null) throw new InvalidOperationException("示例谱面解析失败");
+
+        var path = Path.Combine(TempRoot, "import-" + Guid.NewGuid().ToString("N") + ".mid");
+        try
+        {
+            MidiFileWriter.Write(parsed.Score, path);
+            var document = SmfReader.Read(File.ReadAllBytes(path));
+            return MidiToAttm.Convert(document, "roundtrip.mid").Text;
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 
     internal static void Check(string name, Func<bool> test)

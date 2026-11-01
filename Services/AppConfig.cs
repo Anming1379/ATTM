@@ -23,6 +23,12 @@ public sealed class AppConfig
 
     public bool AutoScrollOnPlay { get; set; } = true;
 
+    /// <summary>被禁用的插件 dll 文件名（插件管理器写入，重启后生效）。</summary>
+    public List<string> DisabledPlugins { get; set; } = new();
+
+    /// <summary>用户确认过无沙箱权限的插件，格式 "id@version"。</summary>
+    public List<string> ApprovedPlugins { get; set; } = new();
+
     /// <summary>右侧乐句预览侧边栏是否展开。</summary>
     public bool PhrasePreviewVisible { get; set; }
 
@@ -48,6 +54,22 @@ public sealed class AppConfig
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ATTM");
 
     public static string ConfigPath => Path.Combine(ConfigDirectory, "config.json");
+
+    /// <summary>主路径不可写时的退路：放在程序目录，跟着 exe 走。</summary>
+    public static string PortableConfigPath => Path.Combine(AppContext.BaseDirectory, "ATTM.config.json");
+
+    /// <summary>最近一次实际读写的配置文件路径。</summary>
+    public static string ActiveConfigPath { get; private set; } = ConfigPath;
+
+    /// <summary>最近一次保存失败的原因；保存成功时为 null。</summary>
+    public static string? LastSaveError { get; private set; }
+
+    /// <summary>候选配置路径，按优先级排列。</summary>
+    private static IEnumerable<string> CandidatePaths()
+    {
+        yield return ConfigPath;
+        yield return PortableConfigPath;
+    }
 
     /// <summary>
     /// 谱库目录：固定是"音乐\ATTM"（系统默认音乐文件夹），不存在就建出来。
@@ -93,9 +115,11 @@ public sealed class AppConfig
     {
         try
         {
-            if (!File.Exists(ConfigPath)) return new AppConfig { Version = 3 };
+            var source = CandidatePaths().FirstOrDefault(File.Exists);
+            if (source is null) return new AppConfig { Version = 3 };
 
-            var json = File.ReadAllText(ConfigPath);
+            var json = File.ReadAllText(source);
+            ActiveConfigPath = source;
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
 
             if (config.Version < 2 && Math.Abs(config.EditorFontSize - 15) < 0.01)
@@ -119,16 +143,32 @@ public sealed class AppConfig
         }
     }
 
-    public void Save()
+    /// <summary>
+    /// 保存配置：先写 %APPDATA%，不行就写到程序目录（便携模式）。
+    /// 返回 false 表示两个位置都写不了，原因见 <see cref="LastSaveError"/>。
+    /// </summary>
+    public bool Save()
     {
-        try
+        var json = JsonSerializer.Serialize(this, JsonOptions);
+        LastSaveError = null;
+
+        foreach (var path in CandidatePaths())
         {
-            Directory.CreateDirectory(ConfigDirectory);
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(this, JsonOptions));
+            try
+            {
+                var directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+
+                File.WriteAllText(path, json);
+                ActiveConfigPath = path;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LastSaveError = $"{path}：{ex.Message}";
+            }
         }
-        catch
-        {
-            // 无写入权限时忽略
-        }
+
+        return false;
     }
 }

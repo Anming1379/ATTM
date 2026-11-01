@@ -51,9 +51,6 @@ public static class ThemeService
         EnsureSystemWatcher();
     }
 
-    /// <summary>兼容旧调用：true = 深色。</summary>
-    public static void SetTheme(bool dark) => SetMode(dark ? AppTheme.Dark : AppTheme.Light);
-
     /// <summary>系统主题变化时调用（跟随系统模式才真正重绘）。</summary>
     public static void RefreshSystemTheme()
     {

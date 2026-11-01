@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>ATTM.Plugin.MidiImport</AssemblyName>
+    <RootNamespace>ATTM.Plugin.MidiImport</RootNamespace>
+
+    <!-- 插件：由宿主按 dll 装载，自己不是可执行程序 -->
+    <OutputType>Library</OutputType>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 只引用宿主，用来拿到 IAttmPlugin 等契约类型 -->
+    <ProjectReference Include="..\..\ATTM.csproj" />
+  </ItemGroup>
+
+  <!-- 构建完顺手把 dll 放到主程序的 plugins 目录，dotnet run 也能直接看到插件 -->
+  <Target Name="CopyPluginToAppOutput" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="..\..\bin\$(Configuration)\net10.0-windows\plugins" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
