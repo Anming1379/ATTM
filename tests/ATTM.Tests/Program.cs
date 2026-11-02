@@ -37,6 +37,34 @@ internal static class Program
             return 0;
         }
 
+        if (args.Length >= 2 && args[0] == "--count")
+        {
+            var parsedText = AttmParser.Parse(File.ReadAllText(args[1]));
+            Console.WriteLine($"音符 {parsedText.Score?.Notes.Count}，诊断 {parsedText.Diagnostics.Count}，" +
+                              $"小节 {parsedText.Score?.MeasureCount}");
+            foreach (var diagnostic in parsedText.Diagnostics.Take(5))
+                Console.WriteLine($"  {diagnostic.Line}:{diagnostic.Column} {diagnostic.Message}");
+            return 0;
+        }
+
+        if (args.Length >= 2 && args[0] == "--import")
+        {
+            var midi = MidiFileReader.Read(args[1]);
+            Console.WriteLine($"format {midi.Format} · {midi.TrackCount} 轨 · PPQ {midi.TicksPerQuarter} · " +
+                              $"{midi.Notes.Count} 个音 · 拍号 {midi.FirstTimeSignature.Numerator}/{midi.FirstTimeSignature.Denominator} · " +
+                              $"{midi.DominantBpm:0.#} bpm");
+
+            var imported = ATTM.Core.Import.MidiImporter.Convert(midi);
+            if (args.Length >= 3) File.WriteAllText(args[2], imported.Text);
+
+            Console.WriteLine(imported.Text);
+            Console.WriteLine("--- 报告 ---");
+            Console.WriteLine(imported.Report.Summary);
+            if (imported.Report.TimeSignatureNote is { } signatureNote) Console.WriteLine($"拍号：{signatureNote}");
+            foreach (var warning in imported.Report.Warnings) Console.WriteLine($"警告：{warning}");
+            return 0;
+        }
+
         const string Header = "bpm = 120\n1 = C 4/4\n\n";
 
         // ---------------------------------------------------------- 词法
@@ -892,6 +920,7 @@ internal static class Program
         });
 
         PlaybackChecks.Run();
+        ImportChecks.Run((name, test) => Check(name, test));
 
         Console.WriteLine();
         Console.WriteLine($"通过 {_passed}，失败 {_failed}");

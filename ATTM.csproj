@@ -17,8 +17,8 @@
     <Company>Anming_cat</Company>
     <Description>用纯文本快速写 MIDI 谱</Description>
     <Copyright>MIT License</Copyright>
-    <Version>0.2.2</Version>
-    <FileVersion>0.2.2.0</FileVersion>
+    <Version>0.3.0</Version>
+    <FileVersion>0.3.0.0</FileVersion>
     <LangVersion>latest</LangVersion>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
   </PropertyGroup>

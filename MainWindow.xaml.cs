@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ATTM.Core.Import;
 using ATTM.Core.Midi;
 using ATTM.Core.Playback;
 using ATTM.Core.Syntax;
@@ -66,6 +67,9 @@ $ legato(10223050) # legato() 表示连奏
     private string _deviceName = string.Empty;
     private bool _isDirty;
     private bool _suppressDirty;
+
+    /// <summary>一次性状态栏提示（比如刚导入完 MIDI），用户一改动就消失。</summary>
+    private string? _statusNotice;
     private int _lastSecond = -1;
     private bool _hasHighlight;
 
@@ -251,6 +255,7 @@ $ legato(10223050) # legato() 表示连奏
         if (_suppressDirty || _isDirty) return;
 
         _isDirty = true;
+        _statusNotice = null;
         UpdateStatus();
     }
 
@@ -358,6 +363,21 @@ $ legato(10223050) # legato() 表示连奏
         if (!string.IsNullOrEmpty(_filePath)) RevealInExplorer(_filePath);
     }
 
+    private PianoWindow? _pianoWindow;
+
+    private void PianoButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pianoWindow is { IsLoaded: true })
+        {
+            _pianoWindow.Activate();
+            return;
+        }
+
+        _pianoWindow = new PianoWindow(() => _player.Output, _config) { Owner = this };
+        _pianoWindow.Closed += (_, _) => _pianoWindow = null;
+        _pianoWindow.Show();
+    }
+
     private void PhraseButton_Click(object sender, RoutedEventArgs e)
     {
         var visible = PhraseButton.IsChecked == true;
@@ -388,7 +408,11 @@ $ legato(10223050) # legato() 表示连奏
         ErrorCountText.Text = $"错误 {errors}";
         ErrorCountText.Foreground = (Brush)FindResource(errors == 0 ? "Brush.Success" : "Brush.Error");
 
-        if (score is null)
+        if (_statusNotice is not null)
+        {
+            InfoText.Text = _statusNotice;
+        }
+        else if (score is null)
         {
             InfoText.Text = $"缺少 bpm / 调式声明 · 行 {line} 列 {column}";
         }
@@ -496,6 +520,7 @@ $ legato(10223050) # legato() 表示连奏
         _filePath = null;
         _fileName = "未命名.attm";
         _isDirty = false;
+        _statusNotice = null;
         _player.Stop();
 
         Reparse();
@@ -675,10 +700,12 @@ $ legato(10223050) # legato() 表示连奏
         // Ctrl+V 粘进来的是文件而不是文本：直接打开它
         if (control && !shift && e.Key == Key.V && Clipboard.ContainsFileDropList())
         {
-            var file = Clipboard.GetFileDropList().Cast<string>().FirstOrDefault(IsScoreFile);
+            var file = Clipboard.GetFileDropList().Cast<string>().FirstOrDefault(f => IsScoreFile(f) || IsMidiFile(f));
             if (file is not null)
             {
-                if (ConfirmDiscard()) LoadFile(file);
+                if (IsMidiFile(file)) ImportMidi(file);
+                else if (ConfirmDiscard()) LoadFile(file);
+
                 e.Handled = true;
                 return;
             }
@@ -698,8 +725,8 @@ $ legato(10223050) # legato() 表示连奏
         var file = TryGetDroppedFile(e);
         if (file is null) return;
 
-        if (ConfirmDiscard())
-            LoadFile(file);
+        if (IsMidiFile(file)) ImportMidi(file);
+        else if (ConfirmDiscard()) LoadFile(file);
 
         e.Handled = true;
     }
@@ -709,7 +736,14 @@ $ legato(10223050) # legato() 表示连奏
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return null;
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return null;
 
-        return files.FirstOrDefault(IsScoreFile);
+        return files.FirstOrDefault(file => IsScoreFile(file) || IsMidiFile(file));
+    }
+
+    public static bool IsMidiFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".mid", StringComparison.OrdinalIgnoreCase)
+               || extension.Equals(".midi", StringComparison.OrdinalIgnoreCase);
     }
 
     // ------------------------------------------------------------ 工具栏
@@ -787,6 +821,88 @@ $ legato(10223050) # legato() 表示连奏
         _config.Save();
 
         ThemeService.SetMode(next);
+    }
+
+    private void MidiImportButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "导入 MIDI",
+            Filter = "MIDI 文件 (*.mid;*.midi)|*.mid;*.midi|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+            InitialDirectory = ResolveMidiFolder()
+        };
+
+        if (dialog.ShowDialog(this) != true) return;
+
+        ImportMidi(dialog.FileName);
+    }
+
+    /// <summary>
+    /// 把一个 MIDI 文件转成简谱，替换当前文档（会先问要不要保存旧内容）。
+    /// 转换失败时只弹一句人话错误，不改动编辑器。
+    /// </summary>
+    public bool ImportMidi(string path, bool confirmDiscard = true)
+    {
+        if (!File.Exists(path))
+        {
+            MessageBox.Show(this, $"找不到文件：{path}", "ATTM", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        if (confirmDiscard && !ConfirmDiscard()) return false;
+
+        MidiImportResult result;
+
+        try
+        {
+            result = MidiImporter.Convert(path);
+        }
+        catch (MidiFileException ex)
+        {
+            MessageBox.Show(this, ex.Message, "导不进这个 MIDI", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"导入失败：{ex.Message}", "ATTM", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        _suppressDirty = true;
+        Editor.Text = result.Text;
+        _suppressDirty = false;
+
+        _filePath = null;
+        _fileName = Path.GetFileNameWithoutExtension(path) + ".attm";
+        _isDirty = true;
+        _player.Stop();
+
+        Reparse();
+
+        // 状态栏给一次性提示，细节（警告）放进 ToolTip
+        var summary = result.Report.Summary;
+        if (result.Report.Warnings.Count > 0)
+        {
+            InfoText.ToolTip = string.Join((char)10, result.Report.Warnings);
+            summary += $" · {result.Report.Warnings.Count} 条提示（悬停查看）";
+        }
+
+        _statusNotice = summary;
+        InfoText.Text = summary;
+        Editor.FocusEditor();
+
+        _config.LastMidiFolder = Path.GetDirectoryName(path) ?? string.Empty;
+        _config.Save();
+        return true;
+    }
+
+    private string ResolveMidiFolder()
+    {
+        if (!string.IsNullOrWhiteSpace(_config.LastMidiFolder) && Directory.Exists(_config.LastMidiFolder))
+            return _config.LastMidiFolder;
+
+        return AppConfig.LibraryFolder;
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)

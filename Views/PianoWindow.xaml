@@ -1,0 +1,99 @@
+<Window x:Class="ATTM.Views.PianoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:ATTM.Views"
+        Title="钢琴键盘"
+        Width="960" Height="330"
+        MinWidth="560" MinHeight="240"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Brush.Window}"
+        Foreground="{DynamicResource Brush.Text}"
+        FontFamily="{DynamicResource Font.UI}"
+        FontSize="{DynamicResource Size.UI}"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Deactivated="Window_Deactivated"
+        Closed="Window_Closed">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="34" />
+        </Grid.RowDefinitions>
+
+        <views:PianoKeyboard x:Name="Keys" Grid.Row="0" Margin="12,12,12,10" />
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource Brush.Surface}"
+                BorderBrush="{DynamicResource Brush.Border}"
+                BorderThickness="0,1,0,0">
+            <Grid Margin="12,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 左边：音域 + 移八度 + 踏板，全部用图标/色块，不放文字 -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="RangeText"
+                               FontFamily="{DynamicResource Font.Editor}"
+                               FontSize="12"
+                               Foreground="{DynamicResource Brush.TextSecondary}"
+                               VerticalAlignment="Center"
+                               Text="C4 - B6" />
+
+                    <Border Style="{StaticResource ToolbarSeparator}" />
+
+                    <Button x:Name="OctaveDownButton" Style="{StaticResource IconButton}"
+                            Width="26" Height="26" Content="&#xE5CB;"
+                            ToolTip="降低一个八度（Shift / Ctrl + ←）"
+                            Click="OctaveDownButton_Click" />
+                    <Button x:Name="OctaveUpButton" Style="{StaticResource IconButton}"
+                            Width="26" Height="26" Content="&#xE5CC;"
+                            ToolTip="升高一个八度（Shift / Ctrl + →）"
+                            Click="OctaveUpButton_Click" />
+
+                    <Border Style="{StaticResource ToolbarSeparator}" />
+
+                    <ToggleButton x:Name="PedalButton" Style="{StaticResource IndicatorToggle}"
+                                  ToolTip="延音踏板（按住空格，或点这里锁定）"
+                                  Click="PedalButton_Click" />
+                </StackPanel>
+
+                <!-- 右边：只在缺设备时亮一个警告图标，没别的字 -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock x:Name="NoDeviceIcon"
+                               FontFamily="{DynamicResource Font.Icon}"
+                               FontSize="16"
+                               Foreground="{DynamicResource Brush.Error}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,10,0"
+                               Visibility="Collapsed"
+                               Text="&#xE002;"
+                               ToolTip="没有可用的 MIDI 输出设备，按键不会发声（去设置里换一个）" />
+
+                    <TextBlock FontFamily="{DynamicResource Font.Icon}"
+                               FontSize="16"
+                               Foreground="{DynamicResource Brush.TextDisabled}"
+                               VerticalAlignment="Center"
+                               Text="&#xE88E;">
+                        <TextBlock.ToolTip>
+                            <ToolTip>
+                                <TextBlock TextWrapping="Wrap" FontFamily="{DynamicResource Font.UI}">
+                                    Z-M 与 Q-P 弹奏（白键 Z X C V B N M，黑键 S D G H J）&#x0A;
+                                    Shift / 空格 延音踏板&#x0A;
+                                    Shift / Ctrl + ← → 移八度（键盘会滑一下）· Ctrl + 滚轮 也行&#x0A;
+                                    鼠标可点，按住拖动还能滑奏&#x0A;
+                                    Esc 关闭窗口（换八度、切窗口会自动松开所有音）
+                                </TextBlock>
+                            </ToolTip>
+                        </TextBlock.ToolTip>
+                    </TextBlock>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

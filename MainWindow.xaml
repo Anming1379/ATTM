@@ -67,11 +67,18 @@
                     <Button x:Name="SaveButton" Style="{StaticResource IconButton}"
                             Content="&#xE161;" ToolTip="另存为（选择保存位置）；Ctrl+S 可在保存过一次后直接保存"
                             Click="SaveButton_Click" />
+                    <Button x:Name="MidiImportButton" Style="{StaticResource IconButton}"
+                            Content="&#xE9FC;" ToolTip="导入 MIDI（.mid / .midi）：把 MIDI 转成简谱"
+                            Click="MidiImportButton_Click" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="ThemeButton" Style="{StaticResource IconButton}"
                             Content="&#xE518;" ToolTip="切换深色 / 浅色主题" Click="ThemeButton_Click" />
+                    <Button x:Name="PianoButton" Style="{StaticResource IconButton}"
+                            Content="&#xE521;" ToolTip="钢琴键盘（可以用电脑键盘弹奏）"
+                            Click="PianoButton_Click" />
+
                     <Button x:Name="SettingsButton" Style="{StaticResource IconButton}"
                             Content="&#xE8B8;" ToolTip="设置" Click="SettingsButton_Click" />
                 </StackPanel>

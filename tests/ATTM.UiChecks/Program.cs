@@ -35,6 +35,7 @@ internal static class Program
         var startupConfig = AppConfig.Load();
         var originalTheme = startupConfig.Theme;
         var originalPhraseVisible = startupConfig.PhrasePreviewVisible;
+        var originalMidiFolder = startupConfig.LastMidiFolder;
 
         var window = new MainWindow();
         window.Show();
@@ -58,6 +59,16 @@ internal static class Program
         Check("图标字形已渲染", () => iconTexts.Count >= 5 && iconTexts.All(t => t.ActualWidth > 10),
             $"图标 TextBlock {iconTexts.Count} 个：" +
             string.Join(", ", iconTexts.Take(6).Select(t => $"{Describe(t.Text)} {t.ActualWidth:F0}x{t.ActualHeight:F0}")));
+
+        Check("工具栏有钢琴键盘按钮", () =>
+        {
+            var button = window.FindName("PianoButton") as Button;
+            var text = (button?.Content as string) ?? "";
+            var tip = button?.ToolTip as string ?? "";
+
+            Console.WriteLine($"      按钮 {Describe(text)}，提示「{tip}」");
+            return button is not null && text == "" && tip.Contains("钢琴");
+        });
 
         Check("Lekton 字形真实存在（不只是名字）",
             () => GlyphExists("Font.Editor", 'M') && InkPixels("Font.Editor", "MMM", 20) > 30);
@@ -710,6 +721,381 @@ bpm = 120
             return pixels > 100 && watch.ElapsedMilliseconds < 3000;
         });
 
+        Check("钢琴：键位映射覆盖三个八度", () =>
+        {
+            bool ok = PianoKeyMap.TryGetOffset(System.Windows.Input.Key.Z, out var z) && z == 0
+                      && PianoKeyMap.TryGetOffset(System.Windows.Input.Key.M, out var m) && m == 11
+                      && PianoKeyMap.TryGetOffset(System.Windows.Input.Key.Q, out var q) && q == 12
+                      && PianoKeyMap.TryGetOffset(System.Windows.Input.Key.OemOpenBrackets, out var bracket) && bracket == 29
+                      && PianoKeyMap.Span == 34
+                      && !PianoKeyMap.TryGetOffset(System.Windows.Input.Key.F1, out _);
+
+            Console.WriteLine($"      Z=0 M=11 Q=12 [=29 跨度={PianoKeyMap.Span}");
+            return ok;
+        });
+
+        Check("钢琴：键位命中测试与白键黑键边界", () =>
+        {
+            var keys = new PianoKeyboard();
+            keys.SetBaseOctave(4);
+            keys.Measure(new Size(900, 260));
+            keys.Arrange(new Rect(0, 0, 900, 260));
+
+            var c4 = keys.BoundsOf(60);
+            var cSharp4 = keys.BoundsOf(61);
+            var whiteWidth = 900.0 / 21;
+
+            // C4 中心命中自己；C#4 中心命中黑键（黑键压在白键上）
+            var hitC = keys.NoteAt(c4.Left + c4.Width / 2, c4.Height - 10);
+            var hitSharp = keys.NoteAt(cSharp4.Left + cSharp4.Width / 2, 10);
+
+            // 黑键下方（超出黑键高度）应该命中它左边那个白键
+            var underSharp = keys.NoteAt(cSharp4.Left + 2, cSharp4.Height + 20);
+
+            // 三个八度，最后一个白键是 B6 = 95
+            var b6 = keys.BoundsOf(95);
+            var hitB6 = keys.NoteAt(899, 200);
+
+            Console.WriteLine($"      白键宽 {whiteWidth:F1}，C4={hitC} C#4={hitSharp} 黑键下方={underSharp} 边缘={hitB6}");
+            return Math.Abs(c4.Width - whiteWidth) < 0.01
+                   && hitC == 60 && hitSharp == 61 && underSharp == 60
+                   && b6.Left + b6.Width >= 899.9 && hitB6 == 95;
+        });
+
+        Check("钢琴：键盘布点均匀、能画出墨点", () =>
+        {
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(200);
+
+            var pixels = NonBackgroundPixels(keys);
+            var whiteWidth = keys.ActualWidth / 21;
+            host.Close();
+
+            Console.WriteLine($"      键盘 {keys.ActualWidth:F0}x{keys.ActualHeight:F0}，墨点 {pixels}");
+            return keys.ActualWidth > 800 && Math.Abs(whiteWidth - 42) < 3 && pixels > 2000;
+        });
+
+        Check("钢琴：白键亮、黑键暗、按下的键变主题色", () =>
+        {
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(200);
+
+            var white = SamplePixel(keys, 6, (int)(keys.ActualHeight - 8));           // 最左边 C 键底部
+            var black = SamplePixel(keys, (int)keys.BoundsOf(61).Left + 6, 10); // C#4 键上半部分
+
+            keys.SetPressed(60, true);
+            Pump(220);
+            var pressed = SamplePixel(keys, 6, (int)(keys.ActualHeight - 8));          // 同一个 C4 键
+            var pressedCount = keys.PressedCount;
+
+            keys.ClearPressed();
+            Pump(260);
+            var cleared = SamplePixel(keys, 6, (int)(keys.ActualHeight - 8));
+
+            host.Close();
+
+            Console.WriteLine($"      白键 {white} 黑键 {black} 按下 {pressed} 清除后 {cleared}");
+            return Luma(white) > 180 && Luma(black) < 60
+                   && pressed == "#FF4E6A" && pressedCount == 1
+                   && Luma(cleared) > 180;
+        });
+
+        Check("钢琴：按下有动画，松开会回落", () =>
+        {
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(150);
+
+            var restLevel = keys.PressLevel(60);
+            keys.SetPressed(60, true);
+            var justPressed = keys.PressLevel(60);
+            var animating = keys.IsAnimating;
+
+            Pump(200);
+            var fullLevel = keys.PressLevel(60);
+
+            keys.SetPressed(60, false);
+            Pump(60);
+            var fading = keys.PressLevel(60);
+
+            Pump(300);
+            var afterFade = keys.PressLevel(60);
+            var stillAnimating = keys.IsAnimating;
+
+            // 下沉：按满时琴键顶部应该往下挪一点
+            var topBefore = SamplePixel(keys, (int)keys.BoundsOf(60).Left + 8, 1);
+            host.Close();
+
+            Console.WriteLine($"      静止 {restLevel:F2} 刚按下 {justPressed:F2} 按满 {fullLevel:F2} " +
+                              $"回落到 {fading:F2} -> {afterFade:F2}，动画中 {animating}/{stillAnimating}");
+            return restLevel == 0 && justPressed < 0.5 && animating && fullLevel == 1
+                   && fading is > 0 and < 1 && afterFade == 0 && !stillAnimating
+                   && topBefore != "#DADAE4";
+        });
+
+        Check("钢琴：踏板踩下键盘底部亮主题色", () =>
+        {
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(150);
+
+            var offColor = SamplePixel(keys, 400, (int)(keys.ActualHeight - 2));
+            keys.PedalOn = true;
+            Pump(60);
+            var onColor = SamplePixel(keys, 400, (int)(keys.ActualHeight - 2));
+            keys.PedalOn = false;
+            Pump(60);
+            var backColor = SamplePixel(keys, 400, (int)(keys.ActualHeight - 2));
+            host.Close();
+
+            Console.WriteLine($"      踏板 {offColor} -> {onColor} -> {backColor}");
+            return offColor != "#FF4E6A" && onColor == "#FF4E6A" && backColor == offColor;
+        });
+
+        Check("钢琴：踏板按钮自己会亮（状态可见）", () =>
+        {
+            var piano = new PianoWindow(
+                () => new ATTM.Core.Playback.NullMidiOutput(),
+                new AppConfig { PianoBaseOctave = 4 }) { ShowInTaskbar = false };
+            piano.Show();
+            Pump(300);
+
+            var pedal = piano.FindName("PedalButton") as ToggleButton;
+            var noDevice = piano.FindName("NoDeviceIcon") as TextBlock;
+            var offColor = pedal is null ? "(无按钮)" : SamplePixel(pedal, 13, 13);
+
+            pedal!.IsChecked = true;
+            pedal.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Pump(120);
+            var onColor = SamplePixel(pedal, 13, 13);
+            var engaged = piano.PedalEngaged;
+
+            pedal.IsChecked = false;
+            pedal.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Pump(120);
+            var backColor = SamplePixel(pedal, 13, 13);
+            var released = piano.PedalEngaged;
+
+            var warningShown = noDevice?.Visibility == Visibility.Visible;
+            piano.Close();
+            Pump(120);
+
+            Console.WriteLine($"      指示灯 {offColor} -> {onColor} -> {backColor}，" +
+                              $"踏板 {engaged}/{released}，缺设备警告 {warningShown}");
+            return offColor != "#FF4E6A" && onColor == "#FF4E6A" && backColor != "#FF4E6A"
+                   && engaged && !released && warningShown;
+        });
+
+        Check("钢琴：浅色主题下琴键也保持对比", () =>
+        {
+            ThemeService.SetTheme(false);
+            Pump(150);
+
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(200);
+
+            var white = SamplePixel(keys, 6, (int)(keys.ActualHeight - 8));
+            var black = SamplePixel(keys, (int)keys.BoundsOf(61).Left + 6, 10);
+
+            keys.SetPressed(62, true);
+            Pump(220);
+            var pressed = SamplePixel(keys, (int)keys.BoundsOf(62).Left + 6, (int)(keys.ActualHeight - 8));
+            host.Close();
+
+            ThemeService.SetTheme(true);
+            Pump(150);
+
+            Console.WriteLine($"      浅色：白键 {white} 黑键 {black} 按下 {pressed}");
+            return white == "#FFFFFF" && Luma(black) < 60 && pressed == "#FF4E6A";
+        });
+
+        Check("钢琴：按住 Shift 也是踩踏板，换音域不断", () =>
+        {
+            var recorder = new RecordingMidiOutput();
+            var piano = new PianoWindow(() => recorder, new AppConfig { PianoBaseOctave = 4 });
+
+            piano.HandleKey(System.Windows.Input.Key.LeftShift, true, false, true);
+            var afterShift = recorder.Describe();
+            var engaged = piano.PedalEngaged;
+
+            piano.HandleKey(System.Windows.Input.Key.Z, true, false, true);
+            piano.HandleKey(System.Windows.Input.Key.Right, true, false, true);   // Shift + →
+            var afterMove = recorder.Describe();
+            var stillEngaged = piano.PedalEngaged;
+            var octave = piano.BaseOctave;
+
+            piano.HandleKey(System.Windows.Input.Key.LeftShift, false, false);
+            var afterRelease = recorder.Describe();
+            var released = piano.PedalEngaged;
+
+            Console.WriteLine($"      Shift 按下 {afterShift}，换音域后 {afterMove}，松开 {afterRelease}");
+            return afterShift == "cc64 127" && engaged
+                   && afterMove.StartsWith("cc64 127") && stillEngaged && octave == 5
+                   && afterRelease.EndsWith("cc64 0") && !released;
+        });
+
+        Check("钢琴：换音域是滑动的，不是瞬间跳", () =>
+        {
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(150);
+
+            var before = keys.SlideProgress;
+            keys.SetBaseOctave(5);
+            var justAfter = keys.SlideProgress;
+            var sliding = keys.IsSliding;
+            var animating = keys.IsAnimating;
+
+            Pump(90);
+            var middle = keys.SlideProgress;
+
+            Pump(260);
+            var settled = keys.SlideProgress;
+            var stillSliding = keys.IsSliding;
+            host.Close();
+
+            Console.WriteLine($"      进度 {before:F2} -> {justAfter:F2} -> 90ms {middle:F2} -> {settled:F2}，" +
+                              $"滑动中 {sliding}/{stillSliding}，动画 {animating}");
+            return before == 1 && justAfter == 0 && sliding && animating
+                   && middle is > 0.1 and < 0.95 && settled == 1 && !stillSliding;
+        });
+
+        Check("钢琴：换音域滑动中途不留缝", () =>
+        {
+            var keys = new PianoKeyboard();
+            var host = new Window { Width = 900, Height = 300, Content = keys, ShowInTaskbar = false };
+            host.Show();
+            Pump(150);
+
+            var restGaps = TransparentPixelsInRow(keys, (int)(keys.ActualHeight * 0.9));
+
+            keys.SetBaseOctave(5);
+            Pump(90);
+            var midGaps = TransparentPixelsInRow(keys, (int)(keys.ActualHeight * 0.9));
+
+            Pump(300);
+            var endGaps = TransparentPixelsInRow(keys, (int)(keys.ActualHeight * 0.9));
+            host.Close();
+
+            Console.WriteLine($"      透明像素：静止 {restGaps} / 滑动中 {midGaps} / 结束 {endGaps}");
+            return restGaps == 0 && midGaps == 0 && endGaps == 0;
+        });
+
+        Check("钢琴：按 Z 发 C4，松开就停", () =>
+        {
+            var recorder = new RecordingMidiOutput();
+            var config = new AppConfig { PianoBaseOctave = 4 };
+            var piano = new PianoWindow(() => recorder, config);
+
+            piano.HandleKey(System.Windows.Input.Key.Z, true, false);
+            var afterDown = recorder.Describe();
+            var voices = piano.VoicesDown;
+
+            piano.HandleKey(System.Windows.Input.Key.Z, false, false);
+            var afterUp = recorder.Describe();
+
+            Console.WriteLine($"      按下 {afterDown}，松开 {afterUp}");
+            return afterDown == "on 60 v100" && voices == 1 && afterUp == "on 60 v100 / off 60";
+        });
+
+        Check("钢琴：上排高八度 + 踏板 + 换八度先停音", () =>
+        {
+            var recorder = new RecordingMidiOutput();
+            var config = new AppConfig { PianoBaseOctave = 4 };
+            var piano = new PianoWindow(() => recorder, config);
+
+            piano.HandleKey(System.Windows.Input.Key.Space, true, false);    // 踏板踩下
+            piano.HandleKey(System.Windows.Input.Key.Q, true, false);        // C5 = 72
+            var i = recorder.Describe();
+            piano.HandleKey(System.Windows.Input.Key.Q, false, false);
+            piano.HandleKey(System.Windows.Input.Key.Space, false, false);   // 踏板松开
+
+            // 按着音时换八度，必须先把音停掉，不能留幽灵音
+            piano.HandleKey(System.Windows.Input.Key.X, true, false);
+            piano.HandleKey(System.Windows.Input.Key.Left, true, false, true);
+            var moved = recorder.Describe();
+            var voicesAfter = piano.VoicesDown;
+
+            piano.HandleKey(System.Windows.Input.Key.X, false, false);
+            var shiftText = piano.BaseOctave.ToString();
+
+            // Shift + → 再升回去
+            piano.HandleKey(System.Windows.Input.Key.Right, true, false, true);
+            var backText = piano.BaseOctave.ToString();
+
+            Console.WriteLine($"      踏板+Q：{i}");
+            Console.WriteLine($"      换八度后：{moved}，残留 {voicesAfter} 个，Shift+→ 回到 {backText}");
+            return i == "cc64 127 / on 72 v100" && moved.EndsWith("off 62") && voicesAfter == 0
+                   && shiftText == "3" && backText == "4";
+        });
+
+        Check("工具栏有导入 MIDI 按钮", () =>
+        {
+            var button = window.FindName("MidiImportButton") as Button;
+            var text = (button?.Content as string) ?? "";
+            var tip = button?.ToolTip as string ?? "";
+
+            Console.WriteLine($"      按钮 {Describe(text)}，提示「{tip}」");
+            return button is not null && text == "" && tip.Contains("MIDI");
+        });
+
+        Check("拖放：只认 .attm/.txt/.mid/.midi", () =>
+        {
+            var results = new[]
+            {
+                MainWindow.IsMidiFile(@"C:.mid"),
+                MainWindow.IsMidiFile(@"C:\B.MIDI"),
+                MainWindow.IsMidiFile(@"C:.attm")
+            };
+
+            Console.WriteLine($"      mid/midi/attm = {string.Join("/", results)}");
+            return results[0] && results[1] && !results[2] && window.AllowDrop;
+        });
+
+        Check("导入 MIDI：编辑器里换成能解析的简谱", () =>
+        {
+            // 先造一个 4 小节的小 MIDI：右手旋律 + 左手长音
+            var source = AttmParser.Parse(string.Join((char)10, new[]
+            {
+                "bpm = 120", "1 = C 4/4", "",
+                "1,2,3,4", "(135)",
+                "", "5,6,7,1", "(461)",
+                "", "1,1,5,5", "(135)",
+                "", "6,6,5,3", "(461)"
+            }));
+
+            if (source.Score is null) return false;
+
+            var midiPath = Path.Combine(Path.GetTempPath(), "attm-ui-import.mid");
+            ATTM.Core.Midi.MidiFileWriter.Write(source.Score, midiPath);
+
+            var imported = window.ImportMidi(midiPath, confirmDiscard: false);
+            Pump(300);
+            File.Delete(midiPath);
+
+            var diagnostics = ErrorCountOf(window);
+            var notes = InfoTextOf(window);
+            var text = EditorOf(window)?.Text ?? string.Empty;
+
+            Console.WriteLine($"      导入结果 {imported}，诊断 {diagnostics}，状态栏「{Shorten(notes)}」");
+            Console.WriteLine($"      文本前两行：{Shorten(text.Replace((char)10, ' '), 60)}");
+
+            return imported
+                   && diagnostics == 0
+                   && text.Contains("1 = C 4/4")
+                   && notes.Contains("已导入")
+                   && window.Title.Contains("attm-ui-import");
+        });
+
         ThemeService.SetTheme(true);
         editor.ApplyTheme();
         Pump(300);
@@ -720,10 +1106,42 @@ bpm = 120
             var restore = AppConfig.Load();
             restore.Theme = originalTheme;
             restore.PhrasePreviewVisible = originalPhraseVisible;
+            restore.LastMidiFolder = originalMidiFolder;
             restore.Save();
             ThemeService.SetMode(restore.Mode);
         }
         catch { /* 忽略 */ }
+
+        var pianoLight = Array.IndexOf(args, "--dump-piano-light");
+        if (pianoLight >= 0 && pianoLight + 1 < args.Length)
+        {
+            ThemeService.SetTheme(false);
+            Pump(200);
+
+            var piano = new PianoWindow(
+                () => new ATTM.Core.Playback.NullMidiOutput(),
+                new AppConfig { PianoBaseOctave = 4 }) { ShowInTaskbar = false };
+            piano.Show();
+            Pump(500);
+            DumpWindow(piano, args[pianoLight + 1]);
+            piano.Close();
+            Pump(150);
+
+            ThemeService.SetTheme(true);
+            Pump(200);
+        }
+
+        var pianoIndex = Array.IndexOf(args, "--dump-piano");
+        if (pianoIndex >= 0 && pianoIndex + 1 < args.Length)
+        {
+            var piano = new PianoWindow(
+                () => new ATTM.Core.Playback.NullMidiOutput(),
+                new AppConfig { PianoBaseOctave = 4 }) { ShowInTaskbar = false };
+            piano.Show();
+            Pump(500);
+            DumpWindow(piano, args[pianoIndex + 1]);
+            piano.Close();
+        }
 
         var dumpIndex = Array.IndexOf(args, "--dump");
         if (dumpIndex >= 0 && dumpIndex + 1 < args.Length)
@@ -762,6 +1180,18 @@ bpm = 120
         window.Close();
         return _failed == 0 ? 0 : 1;
     }
+
+    private static int ErrorCountOf(Window window)
+    {
+        var text = ErrorTextOf(window);
+        return int.TryParse(new string(text.Where(char.IsDigit).ToArray()), out var count) ? count : -1;
+    }
+
+    private static ATTM.Editing.AttmEditor? EditorOf(Window window)
+        => window.FindName("Editor") as ATTM.Editing.AttmEditor;
+
+    private static string Shorten(string text, int max = 40)
+        => text.Length <= max ? text : text[..max] + "…";
 
     private static string InfoTextOf(Window window)
         => (window.FindName("InfoText") as TextBlock)?.Text ?? string.Empty;
@@ -1079,6 +1509,65 @@ bpm = 120
         return count;
     }
 
+    /// <summary>采样某个像素的颜色（十进制 RGB，例如 #FFFF4E6A）。</summary>
+    private static string SamplePixel(FrameworkElement element, int x, int y)
+    {
+        var width = (int)Math.Max(1, element.ActualWidth);
+        var height = (int)Math.Max(1, element.ActualHeight);
+        if (width <= 1 || height <= 1 || x < 0 || y < 0 || x >= width || y >= height) return "(越界)";
+
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+            dc.DrawRectangle(new VisualBrush(element), null, new Rect(0, 0, width, height));
+
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+
+        var stride = width * 4;
+        var pixels = new byte[stride * height];
+        bitmap.CopyPixels(pixels, stride, 0);
+
+        var i = y * stride + x * 4;
+        return $"#{pixels[i + 2]:X2}{pixels[i + 1]:X2}{pixels[i]:X2}";
+    }
+
+    /// <summary>某一行里有多少完全透明（没画东西）的像素——用来检查滑动时有没有露出缝。</summary>
+    private static int TransparentPixelsInRow(FrameworkElement element, int y)
+    {
+        var width = (int)Math.Max(1, element.ActualWidth);
+        var height = (int)Math.Max(1, element.ActualHeight);
+        if (width <= 1 || height <= 1 || y < 0 || y >= height) return -1;
+
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+            dc.DrawRectangle(new VisualBrush(element), null, new Rect(0, 0, width, height));
+
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+
+        var stride = width * 4;
+        var pixels = new byte[stride * height];
+        bitmap.CopyPixels(pixels, stride, 0);
+
+        var transparent = 0;
+        for (var x = 0; x < width; x++)
+        {
+            if (pixels[y * stride + x * 4 + 3] == 0) transparent++;
+        }
+
+        return transparent;
+    }
+
+    private static double Luma(string hex)
+    {
+        if (hex.Length != 7) return -1;
+
+        var r = Convert.ToInt32(hex.Substring(1, 2), 16);
+        var g = Convert.ToInt32(hex.Substring(3, 2), 16);
+        var b = Convert.ToInt32(hex.Substring(5, 2), 16);
+        return 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
     private static string Describe(string text)
     {
         if (string.IsNullOrEmpty(text)) return "(空)";
@@ -1111,6 +1600,27 @@ bpm = 120
         };
         timer.Start();
         Dispatcher.PushFrame(frame);
+    }
+
+    /// <summary>把发出去的 MIDI 消息记成一行文字，方便断言。</summary>
+    private sealed class RecordingMidiOutput : ATTM.Core.Playback.IMidiOutput
+    {
+        private readonly List<string> _log = new();
+
+        public string Name => "recorder";
+        public bool IsOpen => true;
+
+        public void NoteOn(int channel, int pitch, int velocity) => _log.Add($"on {pitch} v{velocity}");
+        public void NoteOff(int channel, int pitch) => _log.Add($"off {pitch}");
+        public void ControlChange(int channel, int controller, int value) => _log.Add($"cc{controller} {value}");
+
+        public void AllNotesOff(int channel) => _log.Add("alloff");
+
+        public void ResetControllers(int channel) => _log.Add("reset");
+
+        public void Dispose() { }
+
+        public string Describe() => _log.Count == 0 ? "(无)" : string.Join(" / ", _log);
     }
 
     private static void Check(string name, Func<bool> test, string detail = "")

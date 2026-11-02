@@ -19,9 +19,15 @@ public sealed class AppConfig
     /// <summary>上次保存到的目录；空字符串表示默认的 音乐\ATTM。</summary>
     public string DefaultSaveFolder { get; set; } = string.Empty;
 
+    /// <summary>上次导入 MIDI 的目录。</summary>
+    public string LastMidiFolder { get; set; } = string.Empty;
+
     public double EditorFontSize { get; set; } = 18;
 
     public bool AutoScrollOnPlay { get; set; } = true;
+
+    /// <summary>钢琴键盘的最低八度（C4 = 4）。</summary>
+    public int PianoBaseOctave { get; set; } = 4;
 
     /// <summary>右侧乐句预览侧边栏是否展开。</summary>
     public bool PhrasePreviewVisible { get; set; }

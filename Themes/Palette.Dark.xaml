@@ -42,6 +42,12 @@
     <SolidColorBrush x:Key="Brush.Syntax.Punctuation" Color="#FF5D6373" />
     <SolidColorBrush x:Key="Brush.Syntax.Rest"      Color="#FF565B6B" />
 
+    <!-- 钢琴键盘 -->
+    <SolidColorBrush x:Key="Brush.Piano.White"      Color="#FFDADAE4" />
+    <SolidColorBrush x:Key="Brush.Piano.Black"      Color="#FF16161B" />
+    <SolidColorBrush x:Key="Brush.Piano.WhiteText"  Color="#FF55556A" />
+    <SolidColorBrush x:Key="Brush.Piano.BlackText"  Color="#FF8E8EA0" />
+
     <Color x:Key="Color.Accent">#FFFF4E6A</Color>
     <Color x:Key="Color.Window">#FF141417</Color>
 
