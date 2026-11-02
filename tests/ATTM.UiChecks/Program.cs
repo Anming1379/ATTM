@@ -34,8 +34,13 @@ internal static class Program
 
         var startupConfig = AppConfig.Load();
         var originalTheme = startupConfig.Theme;
-        var originalPhraseVisible = startupConfig.PhrasePreviewVisible;
+        var originalPhraseMode = startupConfig.PhrasePreviewModeName;
         var originalMidiFolder = startupConfig.LastMidiFolder;
+
+        // 乐句预览固定从"收起"开始跑，免得读取本机配置后三态循环的起点不一样
+        startupConfig.PhrasePreviewMode = "Hidden";
+        startupConfig.PhrasePreviewVisible = false;
+        startupConfig.Save();
 
         var window = new MainWindow();
         window.Show();
@@ -439,7 +444,12 @@ bpm = 120
 
         Check("乐句预览：工具栏有切换按钮", () => phraseButton is not null && phraseButton.Content is string);
 
-        phraseButton!.IsChecked = true;
+        // 三态循环的起点固定为"收起"
+        editor.SetPhraseMode(PhrasePreviewMode.Hidden, animate: false);
+        phraseButton!.IsChecked = false;
+        Pump(300);
+
+        phraseButton.IsChecked = true;
         phraseButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
         Pump(500);
 
@@ -449,11 +459,15 @@ bpm = 120
             : minimap.TranslatePoint(new Point(minimap.ActualWidth, 0), editor).X;
 
         Console.WriteLine($"      面板 {phrase.ActualWidth:F0}px，左边 x={panelLeft:F0}，缩略图右边缘 x={mapRight:F0}");
-        Check("乐句预览：展开在缩略图右侧",
-            () => editor.IsPhrasePreviewVisible && phrase.ActualWidth >= 440 && panelLeft >= mapRight - 1);
+        Check("乐句预览：第一下展开成半屏侧边栏",
+            () => editor.PhraseMode == PhrasePreviewMode.Panel
+                   && editor.IsPhrasePreviewVisible
+                   && phrase.ActualWidth >= 440
+                   && panelLeft >= mapRight - 1);
 
         editor.ShowPhrase(0);
         Pump(700);
+        var panelFontSize = phrase.LastFontSize;
         var firstPhrase = phrase.CurrentText;
         Console.WriteLine($"      第 1 小节：{firstPhrase.Replace(nl.ToString(), " | ")}");
         Check("乐句预览：一行并行声部都显示出来",
@@ -667,21 +681,79 @@ bpm = 120
             return samples.Count >= 2 && phrase.ActiveRanges.Count == 0;
         });
 
-        Check("乐句预览：再次点击收起", () =>
+        // 三态循环：半屏 -> 全窗 -> 收起 -> 半屏 ...
+        void ClickPhrase()
         {
-            phraseButton.IsChecked = false;
-            phraseButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            phraseButton!.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Pump(500);
-            var collapsed = !editor.IsPhrasePreviewVisible && editor.PhrasePanelWidth < 1;
+        }
 
-            // 截图用：重新展开并显示第一句
-            phraseButton.IsChecked = true;
-            phraseButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Pump(500);
+        Check("乐句预览：第二下切到全窗并盖住正文", () =>
+        {
+            ClickPhrase();   // 半屏 -> 全窗
+
+            var left = phrase.TranslatePoint(new Point(0, 0), editor).X;
+            var right = left + phrase.ActualWidth;
+            var editorLeft = editor.TranslatePoint(new Point(0, 0), window).X;
+            var editorRight = editorLeft + editor.ActualWidth;
+
+            // 行号槽在左、缩略图在右，全窗时都该被盖住
+            var gutterLeft = editor.TranslatePoint(new Point(0, 0), window).X;
+            var gutterCovered = left <= 1;
+            var mapCovered = right >= editorRight - 1;
+
+            // 像素级确认：全窗时编辑区左右两端都落在预览面板的背景上（行号槽、缩略图都被盖住）
+            var height = (int)editor.ActualHeight;
+            var leftPixel = SamplePixel(editor, 8, height / 2);
+            var rightPixel = SamplePixel(editor, (int)editor.ActualWidth - 8, height / 2);
+
+            Console.WriteLine($"      模式 {editor.PhraseMode}，面板 {phrase.ActualWidth:F0}px，" +
+                              $"x={left:F0}..{right:F0}，编辑区宽 {editor.ActualWidth:F0}，" +
+                              $"左端 {leftPixel} / 右端 {rightPixel}");
+
+            return editor.PhraseMode == PhrasePreviewMode.Full
+                   && phrase.IsFullWindow
+                   && gutterCovered
+                   && mapCovered
+                   && leftPixel == rightPixel
+                   && phraseButton!.IsChecked == true;
+        });
+
+        Check("乐句预览：全窗时字号放大", () =>
+        {
             editor.ShowPhrase(0);
             Pump(600);
 
-            return collapsed && phrase.HasContent;
+            Console.WriteLine($"      半屏字号 {panelFontSize:F0} -> 全窗字号 {phrase.LastFontSize:F0}");
+            return phrase.LastFontSize > panelFontSize + 5;
+        });
+
+        Check("乐句预览：第三下收起", () =>
+        {
+            ClickPhrase();   // 全窗 -> 收起
+
+            var collapsed = editor.PhraseMode == PhrasePreviewMode.Hidden
+                            && !editor.IsPhrasePreviewVisible
+                            && editor.PhrasePanelWidth < 1
+                            && phraseButton!.IsChecked == false;
+
+            Console.WriteLine($"      收起后宽度 {editor.PhrasePanelWidth:F0}px");
+            return collapsed;
+        });
+
+        Check("乐句预览：第四下回到半屏（循环闭合）", () =>
+        {
+            ClickPhrase();   // 收起 -> 半屏
+
+            var reopened = editor.PhraseMode == PhrasePreviewMode.Panel
+                           && phrase.ActualWidth >= 440
+                           && !phrase.IsFullWindow;
+
+            // 截图用：回到半屏并显示第一句
+            editor.ShowPhrase(0);
+            Pump(600);
+
+            return reopened && phrase.HasContent;
         });
 
         // ---------------------------------------------------------- 主题切换
@@ -1105,7 +1177,8 @@ bpm = 120
         {
             var restore = AppConfig.Load();
             restore.Theme = originalTheme;
-            restore.PhrasePreviewVisible = originalPhraseVisible;
+            restore.PhrasePreviewMode = originalPhraseMode;
+            restore.PhrasePreviewVisible = originalPhraseMode != "Hidden";
             restore.LastMidiFolder = originalMidiFolder;
             restore.Save();
             ThemeService.SetMode(restore.Mode);
@@ -1141,6 +1214,15 @@ bpm = 120
             Pump(500);
             DumpWindow(piano, args[pianoIndex + 1]);
             piano.Close();
+        }
+
+        var dumpFull = Array.IndexOf(args, "--dump-phrase-full");
+        if (dumpFull >= 0 && dumpFull + 1 < args.Length)
+        {
+            editor.SetPhraseMode(PhrasePreviewMode.Full, animate: false);
+            editor.ShowPhrase(0);
+            Pump(700);
+            DumpWindow(window, args[dumpFull + 1]);
         }
 
         var dumpIndex = Array.IndexOf(args, "--dump");

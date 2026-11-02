@@ -29,7 +29,7 @@ public sealed class AttmEditor : Grid
     private EditorPalette _palette = EditorPalette.CreateFallback();
     private ParseResult? _parse;
     private List<HighlightRun>[]? _runs;
-    private bool _phraseVisible;
+    private PhrasePreviewMode _phraseMode = PhrasePreviewMode.Hidden;
     private DispatcherTimer? _widthTimer;
     private long _widthStartedAt;
     private double _widthFrom;
@@ -95,6 +95,14 @@ public sealed class AttmEditor : Grid
         {
             SyncMetrics();
             SyncMinimap();
+        };
+
+        SizeChanged += (_, _) =>
+        {
+            if (_phraseMode != PhrasePreviewMode.Full) return;
+            if (_widthTimer is not null) return;
+
+            _phraseHost.Width = PhraseTargetWidth(_phraseMode);
         };
 
         Loaded += (_, _) =>
@@ -206,26 +214,64 @@ public sealed class AttmEditor : Grid
     /// <summary>右侧的乐句预览面板（缩略图的右边）。</summary>
     public PhrasePreview PhrasePreview => _phrase;
 
-    public bool IsPhrasePreviewVisible => _phraseVisible;
+    public bool IsPhrasePreviewVisible => _phraseMode != PhrasePreviewMode.Hidden;
+
+    /// <summary>当前是收起 / 半屏侧边栏 / 全窗。</summary>
+    public PhrasePreviewMode PhraseMode => _phraseMode;
 
     /// <summary>侧边栏当前占用的宽度（收起时为 0）。</summary>
     public double PhrasePanelWidth => _phraseHost.ActualWidth;
 
-    public void TogglePhrasePreview() => SetPhrasePreviewVisible(!_phraseVisible);
-
-    public void SetPhrasePreviewVisible(bool visible, bool animate = true)
+    /// <summary>半屏 -> 全窗 -> 收起 -> 半屏，循环。返回切换后的状态。</summary>
+    public PhrasePreviewMode TogglePhrasePreview()
     {
-        _phraseVisible = visible;
-
-        if (visible)
+        var next = _phraseMode switch
         {
-            _phraseHost.Visibility = Visibility.Visible;
-            AnimatePhraseWidth(PhrasePreview.PanelWidth, animate);
-            if (_phrase.Lines.Count == 0) _phrase.InvalidateVisual();
+            PhrasePreviewMode.Hidden => PhrasePreviewMode.Panel,
+            PhrasePreviewMode.Panel => PhrasePreviewMode.Full,
+            _ => PhrasePreviewMode.Hidden
+        };
+
+        SetPhraseMode(next);
+        return next;
+    }
+
+    /// <summary>旧接口：true = 半屏侧边栏，false = 收起。</summary>
+    public void SetPhrasePreviewVisible(bool visible, bool animate = true)
+        => SetPhraseMode(visible ? PhrasePreviewMode.Panel : PhrasePreviewMode.Hidden, animate);
+
+    public void SetPhraseMode(PhrasePreviewMode mode, bool animate = true)
+    {
+        _phraseMode = mode;
+
+        if (mode == PhrasePreviewMode.Hidden)
+        {
+            AnimatePhraseWidth(0, animate);
             return;
         }
 
-        AnimatePhraseWidth(0, animate);
+        var full = mode == PhrasePreviewMode.Full;
+
+        // 全窗：跨掉行号槽 / 正文 / 缩略图四列，从右往左盖；半屏：回到最右边那一列
+        Grid.SetColumn(_phraseHost, full ? 0 : 3);
+        Grid.SetColumnSpan(_phraseHost, full ? 4 : 1);
+        _phrase.SetFullWindow(full);
+
+        _phraseHost.Visibility = Visibility.Visible;
+        if (_phrase.Lines.Count == 0) _phrase.InvalidateVisual();
+
+        AnimatePhraseWidth(PhraseTargetWidth(mode), animate);
+    }
+
+    /// <summary>这一状态下预览面板应该多宽。</summary>
+    private double PhraseTargetWidth(PhrasePreviewMode mode)
+    {
+        if (mode == PhrasePreviewMode.Panel) return PhrasePreview.PanelWidth;
+        if (mode != PhrasePreviewMode.Full) return 0;
+
+        // 全窗：铺满整个编辑区（窗口还没量出来时先退回半屏宽度）
+        var available = ActualWidth;
+        return available < 8 ? PhrasePreview.PanelWidth : available;
     }
 
     private void AnimatePhraseWidth(double target, bool animate)
@@ -259,7 +305,9 @@ public sealed class AttmEditor : Grid
 
             _widthTimer?.Stop();
             _widthTimer = null;
-            ApplyPhraseWidth(_widthTo);
+
+            // 全窗要贴住编辑区现在的宽度（动画途中窗口可能被拖过）
+            ApplyPhraseWidth(_phraseMode == PhrasePreviewMode.Full ? PhraseTargetWidth(_phraseMode) : _widthTo);
         };
 
         _widthTimer.Start();

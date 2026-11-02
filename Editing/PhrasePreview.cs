@@ -20,6 +20,9 @@ public sealed class PhrasePreview : FrameworkElement
     private const double SidePadding = 24;
     private const double HeaderHeight = 38;
     private const double MaxFontSize = 64;
+
+    /// <summary>全窗模式下的字号上限（铺满整块编辑区，字可以放很大）。</summary>
+    private const double MaxFontSizeFull = 180;
     private const double MinFontSize = 14;
 
     // 入场：滑入 + 淡入（缓出曲线，起步快、收尾稳）
@@ -48,6 +51,7 @@ public sealed class PhrasePreview : FrameworkElement
     private Typeface _typeface;
     private Typeface _uiTypeface;
 
+    private bool _fullWindow;
     private bool _frameHooked;
     private DispatcherTimer? _watchdog;
 
@@ -58,10 +62,34 @@ public sealed class PhrasePreview : FrameworkElement
 
         ClipToBounds = true;
         SnapsToDevicePixels = true;
+        SizeChanged += (_, _) =>
+        {
+            _layout = null;
+            InvalidateVisual();
+        };
+
         Width = PanelWidth;
         HorizontalAlignment = HorizontalAlignment.Right;
         VerticalAlignment = VerticalAlignment.Stretch;
     }
+
+    /// <summary>
+    /// 切到"全窗"（铺满整个编辑区，盖住正文）或回到半屏侧边栏。
+    /// 全窗时宽度交给外层容器决定，字号上限也放大。
+    /// </summary>
+    public void SetFullWindow(bool full)
+    {
+        if (_fullWindow == full) return;
+
+        _fullWindow = full;
+        HorizontalAlignment = full ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+        Width = full ? double.NaN : PanelWidth;
+
+        _layout = null;
+        InvalidateVisual();
+    }
+
+    public bool IsFullWindow => _fullWindow;
 
     /// <summary>当前乐句（按行）。</summary>
     public IReadOnlyList<PhraseLine> Lines => _current;
@@ -326,7 +354,9 @@ public sealed class PhrasePreview : FrameworkElement
             return;
         }
 
-        _layout = PhraseLayout.Build(_current, body, _palette, _typeface, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        _layout = PhraseLayout.Build(
+            _current, body, _palette, _typeface, VisualTreeHelper.GetDpi(this).PixelsPerDip,
+            _fullWindow ? MaxFontSizeFull : MaxFontSize);
         LayoutBuildCount++;
         UpdateMarks();
     }
@@ -580,7 +610,8 @@ internal sealed class PhraseLayout
         Rect body,
         EditorPalette palette,
         Typeface typeface,
-        double pixelsPerDip)
+        double pixelsPerDip,
+        double maxFontSize = 64)
     {
         var available = Math.Max(60, body.Width - 48);
 
@@ -592,7 +623,12 @@ internal sealed class PhraseLayout
             widest = Math.Max(widest, LayoutHelper.Measure(line.Text, 64, typeface, pixelsPerDip));
         }
 
-        var fontSize = Math.Clamp(64 * (available / widest), 14, 64);
+        // 也要装得下高度：行数多、窗口矮的时候别把字撑出去
+        var byHeight = source.Count == 0
+            ? maxFontSize
+            : Math.Max(14, body.Height / (source.Count * 1.5) * 0.85);
+
+        var fontSize = Math.Clamp(Math.Min(64 * (available / widest), byHeight), 14, maxFontSize);
         var lineHeight = fontSize * 1.5;
         var totalHeight = lineHeight * source.Count;
         var top = body.Top + Math.Max(12, (body.Height - totalHeight) / 2);

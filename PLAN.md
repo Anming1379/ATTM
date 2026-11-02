@@ -913,3 +913,23 @@ Brush.Gutter / Brush.GutterText / Brush.CurrentLine
   623 个音时值和原曲一致，194 个音有偏差（附点、三连音、跨段长音），
   导出回 MIDI 的总发声时长是原来的 0.70（旧做法靠重复起音能到 0.89）。
 - `ATTM.Tests` 107 条、`ATTM.UiChecks` 66 项全绿。
+
+### 2026-11-03 乐句预览三态：半屏 -> 全窗 -> 关闭
+
+- 工具栏那个按钮改成循环切档（`AttmEditor.TogglePhrasePreview`）：
+  `Hidden` -> `Panel`（原来的右侧半屏 460px）-> `Full`（跨掉行号槽 / 正文 / 缩略图四列，盖住代码）->
+  `Hidden`。按钮的 `IsChecked` 只表示"开着还是关着"，具体在第几档看 `AttmEditor.PhraseMode`。
+- 三态枚举 `PhrasePreviewMode`（`Editing/PhrasePreviewMode.cs`）；`SetPhrasePreviewVisible(bool)`
+  保留成"半屏 / 收起"的旧语义，配置读取也做了兼容。
+- 全窗实现：`_phraseHost` 从第 3 列（宽度 460）改成第 0 列 + 跨 4 列，右对齐、宽度动画到编辑区宽度，
+  层级上本来就是最后一个子元素所以天然盖在正文上；`PhrasePreview.SetFullWindow(true)` 把自己
+  的固定宽度改成 `NaN`（跟着容器拉伸），字号上限从 64 提到 180。
+- 字号公式顺手加了高度约束（`body.Height / (行数 * 1.5) * 0.85`），全窗放很大时也不会撑破；
+  半屏时这个约束远大于 64，行为不变。
+- 窗口尺寸变化时全窗宽度跟着走（`SizeChanged`，动画期间不插手）。
+- 半屏才需要把窗口撑到 1180（`EnsurePhraseRoom`），全窗和收起都只要 720。
+- 配置升到 v4：新增 `PhrasePreviewMode`（字符串），老配置只有 bool `PhrasePreviewVisible`，
+  加载时自动翻译成新字段。
+- 测试：`ATTM.UiChecks` 增到 69 项（全窗盖住行号槽/缩略图 + 像素级左右两端同底色、字号确实变大、
+  第三下收起、第四下回到半屏的循环闭合）；测试开头把预览固定成"收起"，不再受本机配置影响。
+- 新增 `--dump-phrase-full <png>` 截图开关。

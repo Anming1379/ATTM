@@ -48,7 +48,7 @@
                     <Button x:Name="StopButton" Style="{StaticResource IconButton}"
                             Content="&#xE047;" ToolTip="停止并回到开头" Click="StopButton_Click" IsEnabled="False" />
                     <ToggleButton x:Name="PhraseButton" Style="{StaticResource ToggleIconButton}"
-                                  Content="&#xE048;" ToolTip="乐句预览（放大显示正在播放的小节）"
+                                  Content="&#xE048;" ToolTip="乐句预览：关闭（再按一下半屏）"
                                   Click="PhraseButton_Click" />
 
                     <Border Style="{StaticResource ToolbarSeparator}" />

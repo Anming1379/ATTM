@@ -8,7 +8,7 @@ namespace ATTM.Services;
 /// <summary>用户配置，保存在 %APPDATA%\ATTM\config.json。</summary>
 public sealed class AppConfig
 {
-    /// <summary>配置版本：2 = 默认字号 18，3 = 去掉自定义主题色、记住窗口位置。</summary>
+    /// <summary>配置版本：2 = 默认字号 18，3 = 去掉自定义主题色、记住窗口位置，4 = 乐句预览三态。</summary>
     public int Version { get; set; }
 
     public string Theme { get; set; } = "Dark";
@@ -29,7 +29,13 @@ public sealed class AppConfig
     /// <summary>钢琴键盘的最低八度（C4 = 4）。</summary>
     public int PianoBaseOctave { get; set; } = 4;
 
-    /// <summary>右侧乐句预览侧边栏是否展开。</summary>
+    /// <summary>乐句预览的状态：Hidden / Panel / Full。空字符串 = 还没写过（看旧字段）。</summary>
+    public string PhrasePreviewMode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 旧版字段：true = 半屏侧边栏。留着是为了读得懂老配置（v3 之前只记了这一个 bool）。
+    /// 新代码请用 <see cref="PhrasePreviewModeName"/>。
+    /// </summary>
     public bool PhrasePreviewVisible { get; set; }
 
     // 窗口位置与大小（首次运行没有值时为空，用居中默认）
@@ -41,6 +47,12 @@ public sealed class AppConfig
 
     [JsonIgnore]
     public AppTheme Mode => ThemeService.ParseMode(Theme);
+
+    /// <summary>乐句预览状态（兼容只有旧 bool 字段的老配置）。</summary>
+    [JsonIgnore]
+    public string PhrasePreviewModeName => string.IsNullOrWhiteSpace(PhrasePreviewMode)
+        ? (PhrasePreviewVisible ? "Panel" : "Hidden")
+        : PhrasePreviewMode;
 
     [JsonIgnore]
     public bool IsDark => Mode switch
@@ -99,7 +111,7 @@ public sealed class AppConfig
     {
         try
         {
-            if (!File.Exists(ConfigPath)) return new AppConfig { Version = 3 };
+            if (!File.Exists(ConfigPath)) return new AppConfig { Version = 4 };
 
             var json = File.ReadAllText(ConfigPath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
@@ -110,9 +122,11 @@ public sealed class AppConfig
                 config.EditorFontSize = 18;
             }
 
-            if (config.Version < 3)
+            if (config.Version < 4)
             {
-                config.Version = 3;
+                // 老配置只有"展开/收起"，先把它翻译成新字段，再让后续版本继续跑
+                config.Version = 4;
+                config.PhrasePreviewMode = config.PhrasePreviewModeName;
                 config.Save();
             }
 

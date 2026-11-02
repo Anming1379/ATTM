@@ -8,6 +8,7 @@ using ATTM.Core.Import;
 using ATTM.Core.Midi;
 using ATTM.Core.Playback;
 using ATTM.Core.Syntax;
+using ATTM.Editing;
 using ATTM.Services;
 using ATTM.Views;
 using Microsoft.Win32;
@@ -123,8 +124,11 @@ $ legato(10223050) # legato() 表示连奏
             _deviceName = _config.MidiOutputDevice;
             ApplyMidiDevice(_config.MidiOutputDevice);
 
-            PhraseButton.IsChecked = _config.PhrasePreviewVisible;
-            Editor.SetPhrasePreviewVisible(_config.PhrasePreviewVisible, animate: false);
+            var phraseMode = ParsePhraseMode(_config.PhrasePreviewModeName);
+            PhraseButton.IsChecked = phraseMode != PhrasePreviewMode.Hidden;
+            PhraseButton.ToolTip = PhraseTooltip(phraseMode);
+            EnsurePhraseRoom(phraseMode);
+            Editor.SetPhraseMode(phraseMode, animate: false);
 
             // 双击 .attm 打开时，命令行参数里带着文件路径
             if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
@@ -335,13 +339,15 @@ $ legato(10223050) # legato() 表示连奏
     }
 
     /// <summary>展开乐句预览时，如果窗口太窄就把窗口撑宽一点，免得正文被挤没。</summary>
-    private void EnsurePhraseRoom(bool visible)
+    /// <summary>半屏侧边栏要留出宽度；全窗是盖住正文，不需要额外变宽。</summary>
+    private void EnsurePhraseRoom(PhrasePreviewMode mode)
     {
         const double minWithPanel = 1180;
+        var needsRoom = mode == PhrasePreviewMode.Panel;
 
-        MinWidth = visible ? minWithPanel : 720;
+        MinWidth = needsRoom ? minWithPanel : 720;
 
-        if (visible && WindowState == WindowState.Normal && Width < minWithPanel)
+        if (needsRoom && WindowState == WindowState.Normal && Width < minWithPanel)
             Width = minWithPanel;
     }
 
@@ -378,18 +384,42 @@ $ legato(10223050) # legato() 表示连奏
         _pianoWindow.Show();
     }
 
+    /// <summary>乐句预览按钮：半屏 -> 全窗 -> 收起 -> 半屏，按一下走一步。</summary>
     private void PhraseButton_Click(object sender, RoutedEventArgs e)
     {
-        var visible = PhraseButton.IsChecked == true;
+        var mode = Editor.TogglePhrasePreview();
 
-        Editor.SetPhrasePreviewVisible(visible);
-        EnsurePhraseRoom(visible);
-        _config.PhrasePreviewVisible = visible;
+        // 按钮只表示"开着还是关着"（半屏和全窗都算开着），具体在第几档看预览面板自己
+        PhraseButton.IsChecked = mode != PhrasePreviewMode.Hidden;
+        EnsurePhraseRoom(mode);
+
+        _config.PhrasePreviewMode = mode.ToString();
+        _config.PhrasePreviewVisible = mode != PhrasePreviewMode.Hidden;
         _config.Save();
 
-        if (visible && _player.State != PlayerState.Stopped)
+        PhraseButton.ToolTip = PhraseTooltip(mode);
+
+        if (mode == PhrasePreviewMode.Hidden) return;
+
+        if (_player.State != PlayerState.Stopped)
             Editor.ShowPhrase(GetPlayingMeasure());
+        else if (mode == PhrasePreviewMode.Full)
+            Editor.ShowPhrase(GetCaretMeasure());
     }
+
+    private static PhrasePreviewMode ParsePhraseMode(string name) => name switch
+    {
+        "Panel" => PhrasePreviewMode.Panel,
+        "Full" => PhrasePreviewMode.Full,
+        _ => PhrasePreviewMode.Hidden
+    };
+
+    private static string PhraseTooltip(PhrasePreviewMode mode) => mode switch
+    {
+        PhrasePreviewMode.Panel => "乐句预览：半屏（再按一下全窗）",
+        PhrasePreviewMode.Full => "乐句预览：全窗（再按一下关闭）",
+        _ => "乐句预览：关闭（再按一下半屏）"
+    };
 
     private void UpdateStatus()
     {
@@ -776,6 +806,24 @@ $ legato(10223050) # legato() 表示连奏
         _player.SetScore(parsed.Score);
         _fadedMeasure = -1;
         _player.Play(GetCaretPlaybackPosition());
+    }
+
+    /// <summary>光标现在落在第几小节（没有解析结果时是 0）。</summary>
+    private int GetCaretMeasure()
+    {
+        var starts = _parse?.MeasureStartLines;
+        if (starts is null || starts.Count == 0) return 0;
+
+        var line = Editor.CaretPosition.Line - 1;
+        var measure = 0;
+
+        for (var i = 0; i < starts.Count; i++)
+        {
+            if (starts[i] <= line) measure = i;
+            else break;
+        }
+
+        return measure;
     }
 
     /// <summary>光标所在小节对应的播放时刻。</summary>
