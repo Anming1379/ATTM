@@ -75,12 +75,14 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 
 [Run]
 ; 缺运行时先装（脚本自己会跳过已安装的情况）
+; 注意：这里不要加 runhidden —— 下载 60 MB 需要看得见的进度，
+; 需要 UAC 时也要能看到"请在弹窗里点 是"的提示，否则会被误认为卡死。
 Filename: "{app}\install-dotnet.cmd"; Parameters: "/quiet"; \
-  StatusMsg: "正在检查 .NET 10 桌面运行时（缺少时会自动下载约 60 MB）..."; \
-  Flags: runhidden waituntilterminated; Check: NeedsDotNet
+  StatusMsg: "正在安装 .NET 10 桌面运行时（会弹出一个窗口显示下载进度）..."; \
+  Flags: waituntilterminated; Check: NeedsDotNet
 
 Filename: "{app}\{#AppExeName}"; Description: "立即启动 {#AppName}"; \
-  Flags: nowait postinstall skipifsilent
+  Flags: nowait postinstall skipifsilent; Check: not NeedsDotNet
 
 [Registry]
 ; .attm 文件关联（HKA 会按权限落到 HKCR 或 HKCU\Software\Classes）
@@ -130,4 +132,14 @@ begin
   end;
 
   Result := not Found;
+end;
+
+// 装完了却还是没有运行时：给一句人话提示，别让用户点开程序时看到 .NET 报错
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssDone) and NeedsDotNet() then
+    MsgBox('没有检测到 .NET 10 桌面运行时，ATTM 暂时还不能启动。' + #13#10 + #13#10 +
+           '可以双击安装目录里的 install-dotnet.cmd 重新安装，' + #13#10 +
+           '或者从 https://dotnet.microsoft.com/download/dotnet/10.0 手动下载安装。',
+           mbInformation, MB_OK);
 end;

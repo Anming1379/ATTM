@@ -787,3 +787,18 @@ Brush.Gutter / Brush.GutterText / Brush.CurrentLine
   打开谱库只认它；`ResolveSaveFolder` 在没记过目录时也复用它。
 - 测试：`谱库目录固定是 音乐ATTM`（断言 LibraryFolder 等于 MyMusic\ATTM，
   且即使 DefaultSaveFolder 指向别处，保存目录才跟随、谱库不跟随）。
+
+### 2026-11-01 修安装程序静默装 .NET 时"卡住"
+
+- 现象：安装包里自动装 .NET 10 运行时那一步没有任何窗口，长时间停在状态提示上，像卡死。
+- 原因：[Run] 里用了 `Flags: runhidden`，把 60 MB 下载的进度条和"请在 UAC 窗口点是"
+  的提示全藏起来了；而且脚本里 `Start-Process -Verb RunAs` 没等子进程，安装程序会提前往下走。
+- 修法：
+  - .iss 去掉 runhidden（保留 waituntilterminated），状态提示写明"会弹出一个窗口显示下载进度"。
+  - install-dotnet.ps1：提权时 `-PassThru` + `WaitForExit()`，等子进程真正装完再判断结果，
+    并在父窗口里汇报成功/失败；curl 加 `--retry/--connect-timeout/--max-time`（下载 30 分钟上限）；
+    安装用 `WaitForExit(20 分钟)`，超时就 Kill 并提示手动安装，不再无限挂。
+  - 安装结束时若仍缺运行时，`CurStepChanged(ssDone)` 弹一句人话提示；
+    "立即启动 ATTM" 也加上 `Check: not NeedsDotNet`，避免直接报 .NET 错误。
+- 验证：aka.ms 下载链接返回 60 MB 文件；脚本在本机（已装运行时）走"无需重复安装"分支退出 0；
+  安装包静默安装/卸载正常；安装目录里手动跑 install-dotnet.cmd 也能正常返回。
